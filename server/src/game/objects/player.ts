@@ -290,6 +290,10 @@ export class PlayerBarn {
         team?: Team;
         pos?: Vec2;
         name?: string;
+        /** Used by the in-process training bot controller. */
+        isAi?: boolean;
+        hasClient?: boolean;
+        forcedTeamId?: number;
     }): Player {
         let group = params.group;
         let team = params.team;
@@ -299,7 +303,9 @@ export class PlayerBarn {
         }
 
         if (!team && this.game.map.factionMode) {
-            team = this.getSmallestTeam();
+            team = params.forcedTeamId
+                ? this.getWaveTeam(params.forcedTeamId)
+                : this.getSmallestTeam();
         }
 
         const socketId = Math.random().toString(16);
@@ -315,6 +321,9 @@ export class PlayerBarn {
             "",
             null,
         );
+
+        player.isAi = params.isAi ?? false;
+        player.hasClient = params.hasClient ?? true;
 
         this.activatePlayer(player, group, team);
 

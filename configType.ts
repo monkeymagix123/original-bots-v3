@@ -1,10 +1,10 @@
+import type { BotPlaystyle, BrainMixConfig } from "./server/src/game/bots/botBrain";
+import type { BotDifficulty } from "./server/src/game/bots/botDifficulty";
 import type { MapDefs } from "./shared/defs/mapDefs";
 import type { TeamMode } from "./shared/gameConfig";
 import type { ProxyDef } from "./shared/types/api";
 import type { DeepPartial } from "./shared/utils/util";
 import type { Vec2 } from "./shared/utils/v2";
-import type { BrainMixConfig } from "./server/src/game/bots/botBrain";
-import type { BotDifficulty } from "./server/src/game/bots/botDifficulty";
 
 /**
  * Common keys used by both API and game server.
@@ -402,6 +402,13 @@ export interface ConfigType {
         debugMapIndicators: boolean;
         enableQuickSwitch: boolean;
         allowBotVsBot: boolean;
+        /** Optional training overrides. Skill fields remain independently tunable. */
+        playstyle?: BotPlaystyle;
+        aimSkill?: number;
+        movementSkill?: number;
+        reactionTime?: number;
+        aggression?: number;
+        preferredWeapon?: string;
     };
 
     /**
