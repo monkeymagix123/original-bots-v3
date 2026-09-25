@@ -5,7 +5,7 @@ import { BotMovementController } from "../../server/src/game/bots/botMovement";
 import { BotPerception } from "../../server/src/game/bots/botPerception";
 import { createBotProfile } from "../../server/src/game/bots/botProfile";
 import { BotRandom } from "../../server/src/game/bots/botRandom";
-import { TeamMode } from "../../shared/gameConfig";
+import { GameConfig, TeamMode } from "../../shared/gameConfig";
 import { ObjectType } from "../../shared/net/objectSerializeFns";
 import { v2 } from "../../shared/utils/v2";
 import { createGame } from "./gameTestHelpers";
@@ -175,6 +175,7 @@ describe("server integration", () => {
             seed: 99,
             diagnostic: true,
         });
+        const spawnDistance = v2.distance(bot.pos, human.pos);
         v2.set(human.pos, v2.add(bot.pos, v2.create(10, 0)));
 
         game.botManager.update(0.1);
@@ -182,6 +183,8 @@ describe("server integration", () => {
         expect(bot.isAi).toBe(true);
         expect(bot.hasClient).toBe(false);
         expect(bot.activeWeapon).toBe("mp5");
+        expect(spawnDistance).toBeGreaterThanOrEqual(GameConfig.player.minSpawnRad);
+        expect(game.map.canPlayerSpawn(bot.pos)).toBe(true);
         const telemetry = game.botManager.getTelemetry(bot);
         expect(telemetry?.decisions).toBe(1);
         expect(telemetry?.perceivedThreats).toBeGreaterThan(0);

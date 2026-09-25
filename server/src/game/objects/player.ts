@@ -309,10 +309,14 @@ export class PlayerBarn {
         }
 
         const socketId = Math.random().toString(16);
+        const pos = params.pos ?? this.game.map.getSpawnPos(group, team);
+        if (!params.pos && group && !group.spawnPosition) {
+            group.spawnPosition = v2.copy(pos);
+        }
 
         const player = new Player(
             this.game,
-            params.pos ?? v2.create(this.game.map.width / 2, this.game.map.height / 2),
+            pos,
             0,
             params.name ?? `TEST-${this.testPlayerCount++}`,
             socketId,
