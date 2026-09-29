@@ -97,6 +97,10 @@ const SEARCH_ARRIVAL_RADIUS = 1.5;
 // before replacing a goal that has made no meaningful progress.
 const SEARCH_PROGRESS_DISTANCE = 0.5;
 const SEARCH_STALL_SECONDS = 1.8;
+const COVER_ARRIVAL_RADIUS = 1.5;
+const COVER_PROGRESS_DISTANCE = 0.5;
+const COVER_STALL_SECONDS = 1.8;
+const COVER_REENTRY_COOLDOWN = 1.5;
 
 /** Slow, hysteretic utility decision maker. It is intentionally not called every game tick. */
 export class BotDecisionMaker {
@@ -108,6 +112,10 @@ export class BotDecisionMaker {
     private sightReactionRemaining = 0;
     private searchBestDistance = Infinity;
     private searchNoProgressTime = 0;
+    private readonly previouslyVisibleEnemyIds = new Set<number>();
+    private coverBestDistance = Infinity;
+    private coverNoProgressTime = 0;
+    private coverReentryRemaining = 0;
     private lastDecision: BotDecision = {
         state: "searching",
         movement: "hold",
@@ -133,6 +141,7 @@ export class BotDecisionMaker {
     ): BotDecision {
         this.stateAge += dt;
         this.decisionCooldown -= dt;
+        this.coverReentryRemaining = Math.max(0, this.coverReentryRemaining - dt);
 
         const currentSearchGoal =
             this.state === "searching" ? this.lastDecision.destination : undefined;
@@ -149,6 +158,27 @@ export class BotDecisionMaker {
         const searchGoalStalled =
             !!currentSearchGoal && this.searchNoProgressTime >= SEARCH_STALL_SECONDS;
 
+        const currentCoverGoal =
+            this.state === "taking-cover" ? this.lastDecision.destination : undefined;
+        const coverDistance = currentCoverGoal
+            ? v2.distance(player.pos, currentCoverGoal)
+            : Infinity;
+        if (coverDistance < this.coverBestDistance - COVER_PROGRESS_DISTANCE) {
+            this.coverBestDistance = coverDistance;
+            this.coverNoProgressTime = 0;
+        } else if (currentCoverGoal) {
+            this.coverNoProgressTime += dt;
+        }
+        const coverGoalReached = coverDistance <= COVER_ARRIVAL_RADIUS;
+        const coverGoalStalled =
+            !!currentCoverGoal && this.coverNoProgressTime >= COVER_STALL_SECONDS;
+        const coverGoalInvalid =
+            !!currentCoverGoal &&
+            !perception.coverCandidates.some(
+                (cover) =>
+                    v2.distance(cover.position, currentCoverGoal) <= COVER_ARRIVAL_RADIUS,
+            );
+
         const lostTarget =
             this.lastDecision.target?.visible &&
             !perception.visibleEnemies.some(
@@ -158,6 +188,13 @@ export class BotDecisionMaker {
         // Keep the current intention briefly on first sight. Aim has its own
         // reaction delay, but combat movement also needs recognition time.
         const seesEnemy = perception.visibleEnemies.length > 0;
+        const newVisibleThreat = perception.visibleEnemies.some(
+            (enemy) => !this.previouslyVisibleEnemyIds.has(enemy.id),
+        );
+        this.previouslyVisibleEnemyIds.clear();
+        for (const enemy of perception.visibleEnemies) {
+            this.previouslyVisibleEnemyIds.add(enemy.id);
+        }
         if (seesEnemy && !this.sawVisibleEnemy && this.sightReactionRemaining <= 0) {
             this.sightReactionRemaining = this.rng.range(...this.profile.reactionTime);
         }
@@ -183,7 +220,10 @@ export class BotDecisionMaker {
             sightReactionCompleted ||
             searchGoalReached ||
             searchGoalStalled ||
-            (perception.visibleEnemies.length > 0 && this.state !== "engaging");
+            coverGoalReached ||
+            coverGoalStalled ||
+            coverGoalInvalid ||
+            newVisibleThreat;
         if (this.decisionCooldown > 0 && !urgent) return this.lastDecision;
         this.decisionCooldown = this.rng.range(...this.profile.decisionInterval);
 
@@ -253,8 +293,26 @@ export class BotDecisionMaker {
                 reason = "magazine empty; creating space while reloading";
             }
         } else if (
+            currentCoverGoal &&
+            visible &&
+            visible.id === this.lastDecision.target?.id &&
+            !perception.outsideZone &&
+            player.health >= 28 &&
+            !newVisibleThreat &&
+            !coverGoalReached &&
+            !coverGoalStalled &&
+            !coverGoalInvalid
+        ) {
+            nextState = "taking-cover";
+            movement = "take-cover";
+            destination = currentCoverGoal;
+            reason = "continuing toward chosen cover";
+        } else if (
             visible &&
             perception.coverCandidates.length > 0 &&
+            this.coverReentryRemaining <= 0 &&
+            !coverGoalReached &&
+            !coverGoalStalled &&
             (player.health < 62 || this.state === "reloading") &&
             this.profile.positioningSkill > this.rng.next()
         ) {
@@ -336,6 +394,9 @@ export class BotDecisionMaker {
         const canInterrupt = urgent || this.stateAge >= this.minStateTime;
         if (nextState !== this.state && !canInterrupt) return this.lastDecision;
         if (nextState !== this.state) {
+            if (this.state === "taking-cover") {
+                this.coverReentryRemaining = COVER_REENTRY_COOLDOWN;
+            }
             transitionReason = reason;
             this.state = nextState;
             this.stateAge = 0;
@@ -351,6 +412,17 @@ export class BotDecisionMaker {
         } else if (this.state !== "searching") {
             this.searchBestDistance = Infinity;
             this.searchNoProgressTime = 0;
+        }
+        if (
+            this.state === "taking-cover" &&
+            destination &&
+            destination !== currentCoverGoal
+        ) {
+            this.coverBestDistance = v2.distance(player.pos, destination);
+            this.coverNoProgressTime = 0;
+        } else if (this.state !== "taking-cover") {
+            this.coverBestDistance = Infinity;
+            this.coverNoProgressTime = 0;
         }
 
         this.lastDecision = {

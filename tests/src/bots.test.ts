@@ -129,6 +129,124 @@ describe("bot decisions", () => {
         zoneCenter: v2.create(0, 0),
     });
 
+    test("holds a selected cover goal through routine decision reviews", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(41),
+            "defensive",
+        );
+        profile.reactionTime = [0, 0];
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        profile.positioningSkill = 1;
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(41));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 55,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const threat = {
+            ...emptySnapshot(),
+            visibleEnemies: [
+                {
+                    id: 2,
+                    position: v2.create(12, 0),
+                    velocity: v2.create(0, 0),
+                    visible: true,
+                    seenAt: 0,
+                    age: 0,
+                    distance: 12,
+                },
+            ],
+            coverCandidates: [
+                { position: v2.create(-4, 3), score: 10, obstacleId: 1 },
+                { position: v2.create(-5, -3), score: 9, obstacleId: 2 },
+            ],
+        };
+
+        const first = decisions.update(0.1, player as never, threat, 12);
+        expect(first.state).toBe("taking-cover");
+        const goal = first.destination;
+        for (let i = 0; i < 10; i++) {
+            const decision = decisions.update(0.1, player as never, threat, 12);
+            expect(decision.state).toBe("taking-cover");
+            expect(decision.destination).toBe(goal);
+        }
+        expect(decisions.update(0.9, player as never, threat, 12).state).toBe("engaging");
+        expect(decisions.update(0.1, player as never, threat, 12).state).toBe("engaging");
+        const newThreat = {
+            ...threat,
+            visibleEnemies: [
+                ...threat.visibleEnemies,
+                {
+                    ...threat.visibleEnemies[0],
+                    id: 3,
+                    position: v2.create(8, 0),
+                    distance: 8,
+                },
+            ],
+        };
+        expect(decisions.update(0.1, player as never, newThreat, 12).target?.id).toBe(3);
+    });
+
+    test("moves toward chosen cover and resumes combat on arrival", () => {
+        const { profile, personality } = createBotProfile(
+            "skilled",
+            new BotRandom(42),
+            "defensive",
+        );
+        profile.reactionTime = [0, 0];
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        profile.positioningSkill = 1;
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(42));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 55,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const cover = v2.create(-4, 3);
+        const threat = {
+            ...emptySnapshot(),
+            visibleEnemies: [
+                {
+                    id: 2,
+                    position: v2.create(12, 0),
+                    velocity: v2.create(0, 0),
+                    visible: true,
+                    seenAt: 0,
+                    age: 0,
+                    distance: 12,
+                },
+            ],
+            coverCandidates: [{ position: cover, score: 10, obstacleId: 1 }],
+        };
+
+        expect(decisions.update(0.1, player as never, threat, 12).state).toBe(
+            "taking-cover",
+        );
+        while (v2.distance(player.pos, cover) > 1.5) {
+            const direction = v2.directionNormalized(player.pos, cover);
+            v2.set(player.pos, v2.add(player.pos, v2.mul(direction, 0.4)));
+            if (v2.distance(player.pos, cover) > 1.5) {
+                const decision = decisions.update(0.1, player as never, threat, 12);
+                expect(decision.state).toBe("taking-cover");
+                expect(decision.destination).toBe(cover);
+            }
+        }
+        expect(decisions.update(0.1, player as never, threat, 12).state).toBe("engaging");
+    });
+
     test.each([
         "beginner",
         "casual",
