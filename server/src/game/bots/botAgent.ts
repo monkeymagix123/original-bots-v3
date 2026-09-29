@@ -80,7 +80,19 @@ export class BotAgent {
         msg.seq = this.seq++ & 0xff;
         this.applyMovement(msg, movement.direction);
 
-        const visibleTarget = decision.target?.visible ? decision.target : undefined;
+        // Begin aim recognition as soon as a target is visibly perceived, even
+        // while the decision maker keeps its previous movement intention.
+        // Use current perception so a lost target cannot be aimed at or shot.
+        let visibleTarget = perceived.visibleEnemies.find(
+            (enemy) => enemy.id === decision.target?.id,
+        );
+        if (!visibleTarget) {
+            for (const enemy of perceived.visibleEnemies) {
+                if (!visibleTarget || enemy.distance < visibleTarget.distance) {
+                    visibleTarget = enemy;
+                }
+            }
+        }
         if (visibleTarget) {
             const aim = this.aim.update(
                 dt,
@@ -94,7 +106,10 @@ export class BotAgent {
             );
             msg.toMouseDir = aim.direction;
             msg.toMouseLen = Math.min(64, visibleTarget.distance);
-            msg.shootStart = decision.wantsToShoot && aim.readyToFire;
+            msg.shootStart =
+                decision.wantsToShoot &&
+                decision.target?.id === visibleTarget.id &&
+                aim.readyToFire;
             msg.shootHold = msg.shootStart;
             this.telemetry.aimError = aim.errorRadians;
             this.telemetry.reactionRemaining = aim.reactionRemaining;

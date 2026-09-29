@@ -96,6 +96,8 @@ export class BotDecisionMaker {
     private stateAge = 0;
     private minStateTime = 0;
     private decisionCooldown = 0;
+    private sawVisibleEnemy = false;
+    private sightReactionRemaining = 0;
     private lastDecision: BotDecision = {
         state: "searching",
         movement: "hold",
@@ -128,10 +130,32 @@ export class BotDecisionMaker {
                 (enemy) => enemy.id === this.lastDecision.target?.id,
             );
 
+        // Keep the current intention briefly on first sight. Aim has its own
+        // reaction delay, but combat movement also needs recognition time.
+        const seesEnemy = perception.visibleEnemies.length > 0;
+        if (seesEnemy && !this.sawVisibleEnemy && this.sightReactionRemaining <= 0) {
+            this.sightReactionRemaining = this.rng.range(...this.profile.reactionTime);
+        }
+        this.sawVisibleEnemy = seesEnemy;
+        let sightReactionCompleted = false;
+        if (this.sightReactionRemaining > 0) {
+            this.sightReactionRemaining = Math.max(0, this.sightReactionRemaining - dt);
+            sightReactionCompleted = this.sightReactionRemaining === 0;
+            if (
+                this.sightReactionRemaining > 0 &&
+                !perception.outsideZone &&
+                player.health >= 28 &&
+                !lostTarget
+            ) {
+                return this.lastDecision;
+            }
+        }
+
         const urgent =
             perception.outsideZone ||
             player.health < 28 ||
             lostTarget ||
+            sightReactionCompleted ||
             (perception.visibleEnemies.length > 0 && this.state !== "engaging");
         if (this.decisionCooldown > 0 && !urgent) return this.lastDecision;
         this.decisionCooldown = this.rng.range(...this.profile.decisionInterval);

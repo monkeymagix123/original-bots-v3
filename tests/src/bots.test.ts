@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { BotAgent } from "../../server/src/game/bots/botAgent";
 import { BotAimController } from "../../server/src/game/bots/botAim";
 import { BotDecisionMaker } from "../../server/src/game/bots/botDecision";
 import { getBotSkillProfile } from "../../server/src/game/bots/botDifficulty";
@@ -126,6 +127,142 @@ describe("bot decisions", () => {
         coverCandidates: [],
         outsideZone: false,
         zoneCenter: v2.create(0, 0),
+    });
+
+    test.each([
+        "beginner",
+        "casual",
+        "skilled",
+        "expert",
+    ] as const)("%s waits for recognition before changing movement on first sight", (difficulty) => {
+        const { profile, personality } = createBotProfile(
+            difficulty,
+            new BotRandom(31),
+            "aggressive",
+        );
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(31));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const seen = {
+            ...emptySnapshot(),
+            visibleEnemies: [
+                {
+                    id: 2,
+                    position: v2.create(12, 0),
+                    velocity: v2.create(0, 0),
+                    visible: true,
+                    seenAt: 0,
+                    age: 0,
+                    distance: 12,
+                },
+            ],
+        };
+        const step = 0.02;
+        let reactionSeconds = 0;
+        let decision = decisions.update(step, player as never, seen, 12);
+        reactionSeconds += step;
+        expect(decision.state).toBe("searching");
+        expect(decision.movement).toBe("hold");
+        expect(decision.wantsToShoot).toBe(false);
+
+        while (decision.state !== "engaging" && reactionSeconds < 2) {
+            decision = decisions.update(step, player as never, seen, 12);
+            reactionSeconds += step;
+        }
+        expect(decision.state).toBe("engaging");
+        expect(reactionSeconds).toBeGreaterThanOrEqual(profile.reactionTime[0]);
+        expect(reactionSeconds).toBeLessThanOrEqual(profile.reactionTime[1] + step);
+    });
+
+    test("zone danger still interrupts a pending sight reaction", () => {
+        const { profile, personality } = createBotProfile(
+            "beginner",
+            new BotRandom(32),
+            "aggressive",
+        );
+        profile.zoneAwareness = 1;
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(32));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const danger = {
+            ...emptySnapshot(),
+            outsideZone: true,
+            zoneCenter: v2.create(10, 0),
+            visibleEnemies: [
+                {
+                    id: 2,
+                    position: v2.create(12, 0),
+                    velocity: v2.create(0, 0),
+                    visible: true,
+                    seenAt: 0,
+                    age: 0,
+                    distance: 12,
+                },
+            ],
+        };
+
+        const decision = decisions.update(0.02, player as never, danger, 12);
+        expect(decision.state).toBe("zone-rotating");
+        expect(decision.destination).toEqual(danger.zoneCenter);
+    });
+
+    test("a brief glimpse does not trigger an immediate chase through cover", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(33),
+            "aggressive",
+        );
+        profile.reactionTime = [0.5, 0.5];
+        personality.chasePersistence = 1;
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(33));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const enemy = {
+            id: 2,
+            position: v2.create(12, 0),
+            velocity: v2.create(0, 0),
+            visible: true,
+            seenAt: 0,
+            age: 0,
+            distance: 12,
+        };
+
+        decisions.update(
+            0.1,
+            player as never,
+            { ...emptySnapshot(), visibleEnemies: [enemy] },
+            12,
+        );
+        const memory = {
+            ...emptySnapshot(),
+            rememberedEnemies: [{ ...enemy, visible: false, age: 0.1 }],
+        };
+        expect(decisions.update(0.1, player as never, memory, 12).movement).toBe("hold");
+        expect(decisions.update(0.31, player as never, memory, 12).state).toBe("chasing");
     });
 
     test("uses an owned healthkit when no bandage is available", () => {
@@ -344,6 +481,46 @@ describe("perception and memory", () => {
 });
 
 describe("server integration", () => {
+    test("aim and movement recognition overlap without firing at a lost target", async () => {
+        const game = await createGame(TeamMode.Solo, "main");
+        const human = game.playerBarn.addTestPlayer({ name: "human" });
+        const bot = game.botManager.spawnBot({
+            difficulty: "casual",
+            playstyle: "aggressive",
+            seed: 101,
+            diagnostic: true,
+        });
+        v2.set(human.pos, v2.add(bot.pos, v2.create(0, 10)));
+        const { personality } = createBotProfile(
+            "casual",
+            new BotRandom(101),
+            "aggressive",
+        );
+        const profile = getBotSkillProfile("casual");
+        profile.reactionTime = [0.4, 0.4];
+        const agent = new BotAgent(game, bot, {
+            profile,
+            personality,
+            seed: 101,
+            diagnostic: true,
+        });
+
+        agent.update(0.1);
+        expect(agent.telemetry.state).toBe("searching");
+        expect(agent.telemetry.reactionRemaining).toBeCloseTo(0.3);
+        expect(agent.telemetry.shotsAttempted).toBe(0);
+
+        for (let i = 0; i < 4; i++) agent.update(0.1);
+        expect(agent.telemetry.state).toBe("engaging");
+        expect(agent.telemetry.reactionRemaining).toBe(0);
+
+        human.dead = true;
+        agent.update(0.1);
+        expect(agent.telemetry.aimPoint).toBeUndefined();
+        expect(bot.shootStart).toBe(false);
+        game.botManager.clearInternalBots();
+    });
+
     test("creates a clientless AI player and drives normal player inputs", async () => {
         const game = await createGame(TeamMode.Solo, "main");
         const human = game.playerBarn.addTestPlayer({ name: "human" });
