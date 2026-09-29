@@ -70,6 +70,7 @@ export class BotAgent {
             this.player,
             perceived,
             weapon.preferredDistance * this.options.personality.preferredCombatDistance,
+            weapon.maxDistance,
         );
         const movement = this.movement.update(
             dt,
@@ -124,6 +125,14 @@ export class BotAgent {
             this.telemetry.reactionRemaining = 0;
         }
 
+        if (
+            this.player.actionType === GameConfig.Action.UseItem &&
+            decision.state !== "healing" &&
+            visibleTarget &&
+            visibleTarget.distance <= weapon.maxDistance
+        ) {
+            msg.addInput(GameConfig.Input.Cancel);
+        }
         if (decision.wantsToReload) msg.addInput(GameConfig.Input.Reload);
         if (decision.switchWeapon === GameConfig.WeaponSlot.Primary) {
             msg.addInput(GameConfig.Input.EquipPrimary);
@@ -184,6 +193,7 @@ export class BotAgent {
     private weaponCharacteristics(): {
         preferredDistance: number;
         projectileSpeed: number;
+        maxDistance: number;
     } {
         const def = GameObjectDefs[this.player.activeWeapon];
         if (def?.type === "gun") {
@@ -197,8 +207,9 @@ export class BotAgent {
             return {
                 preferredDistance,
                 projectileSpeed: bullet?.speed ?? 100,
+                maxDistance,
             };
         }
-        return { preferredDistance: 2.25, projectileSpeed: 0 };
+        return { preferredDistance: 2.25, projectileSpeed: 0, maxDistance: 2.25 };
     }
 }

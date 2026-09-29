@@ -11,6 +11,7 @@ import {
 import { createBotProfile } from "../../server/src/game/bots/botProfile";
 import { BotRandom } from "../../server/src/game/bots/botRandom";
 import { GameConfig, TeamMode } from "../../shared/gameConfig";
+import { MsgType, UpdateMsg } from "../../shared/net/net";
 import { ObjectType } from "../../shared/net/objectSerializeFns";
 import { v2 } from "../../shared/utils/v2";
 import { createGame } from "./gameTestHelpers";
@@ -603,6 +604,92 @@ describe("bot decisions", () => {
         expect(result.useItem).toBe("healthkit");
     });
 
+    test.each([
+        "beginner",
+        "casual",
+        "skilled",
+        "expert",
+    ] as const)("%s does not heal while a targetable enemy remains visible", (difficulty) => {
+        for (let seed = 1; seed <= 30; seed++) {
+            const { profile, personality } = createBotProfile(
+                difficulty,
+                new BotRandom(seed),
+                "defensive",
+            );
+            const decisions = new BotDecisionMaker(
+                profile,
+                personality,
+                new BotRandom(seed + 2000),
+            );
+            const player = {
+                pos: v2.create(0, 0),
+                health: 45,
+                curWeapIdx: GameConfig.WeaponSlot.Primary,
+                weapons: [
+                    { type: "mp5", ammo: 20 },
+                    { type: "", ammo: 0 },
+                ],
+                invManager: { has: (item: string) => item === "bandage" },
+            };
+            const visible = {
+                ...emptySnapshot(),
+                visibleEnemies: [
+                    {
+                        id: 2,
+                        position: v2.create(30, 0),
+                        velocity: v2.create(0, 0),
+                        visible: true,
+                        seenAt: 0,
+                        age: 0,
+                        distance: 30,
+                    },
+                ],
+            };
+            for (let tick = 0; tick < 30; tick++) {
+                const decision = decisions.update(0.1, player as never, visible, 12, 100);
+                expect(decision.state).not.toBe("healing");
+                expect(decision.useItem).toBeUndefined();
+            }
+        }
+    });
+
+    test("heals with only remembered danger outside direct sight", () => {
+        const { profile, personality } = createBotProfile(
+            "skilled",
+            new BotRandom(54),
+            "defensive",
+        );
+        profile.tacticalJudgment = 1;
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(54));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 45,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: (item: string) => item === "bandage" },
+        };
+        const remembered = {
+            ...emptySnapshot(),
+            rememberedEnemies: [
+                {
+                    id: 2,
+                    position: v2.create(30, 0),
+                    velocity: v2.create(0, 0),
+                    visible: false,
+                    seenAt: 0,
+                    age: 0.2,
+                    distance: 30,
+                },
+            ],
+        };
+        expect(decisions.update(2, player as never, remembered, 12, 100).state).toBe(
+            "healing",
+        );
+    });
+
     test("drops a firing decision as soon as the target leaves view", () => {
         const { profile, personality } = createBotProfile(
             "casual",
@@ -918,6 +1005,76 @@ describe("perception and memory", () => {
 });
 
 describe("server integration", () => {
+    test("cancels an active bot heal after reacting to a visible attacker", async () => {
+        const game = await createGame(TeamMode.Solo, "main");
+        const bot = game.botManager.spawnBot({
+            difficulty: "casual",
+            playstyle: "defensive",
+            seed: 55,
+            diagnostic: true,
+        });
+        bot.health = 45;
+        bot.invManager.give("bandage", 1);
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(55),
+            "defensive",
+        );
+        profile.tacticalJudgment = 1;
+        profile.reactionTime = [0.3, 0.3];
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        const agent = new BotAgent(game, bot, {
+            profile,
+            personality,
+            seed: 55,
+            diagnostic: true,
+        });
+
+        agent.update(0.1);
+        expect(agent.telemetry.state).toBe("healing");
+        expect(bot.actionType).toBe(GameConfig.Action.UseItem);
+
+        const human = game.playerBarn.addTestPlayer({ name: "attacker" });
+        v2.set(human.pos, v2.add(bot.pos, v2.create(10, 0)));
+        agent.update(0.1);
+        expect(agent.telemetry.state).toBe("healing");
+        expect(bot.actionType).toBe(GameConfig.Action.UseItem);
+
+        for (let i = 0; i < 4; i++) agent.update(0.1);
+        expect(agent.telemetry.state).not.toBe("healing");
+        expect(bot.actionType).toBe(GameConfig.Action.None);
+        game.botManager.clearInternalBots();
+    });
+
+    test("sends full player info once when spectating a clientless bot", async () => {
+        const game = await createGame(TeamMode.Solo, "main");
+        const spectator = game.playerBarn.addTestPlayer({ name: "spectator" });
+        const bot = game.botManager.spawnBot({ difficulty: "casual", seed: 56 });
+        spectator.spectating = bot;
+        const playerInfoCounts: number[] = [];
+        const stream = spectator.msgStream;
+        // This test observes UpdateMsg selection, so skip unrelated map-byte copying.
+        stream.stream.writeBytes = () => {};
+        const serialize = stream.serializeMsg.bind(stream);
+        stream.serializeMsg = (type, msg) => {
+            if (type === MsgType.Update && msg instanceof UpdateMsg) {
+                playerInfoCounts.push(msg.playerInfos.length);
+            }
+            return serialize(type, msg);
+        };
+
+        spectator.sendMsgs();
+        game.playerBarn.flush();
+        spectator.sendMsgs();
+        const newcomer = game.playerBarn.addTestPlayer({ name: "newcomer" });
+        spectator.sendMsgs();
+
+        expect(playerInfoCounts).toEqual([2, 0, 1]);
+        expect(newcomer.hasClient).toBe(true);
+        game.botManager.clearInternalBots();
+    });
+
     test("aim and movement recognition overlap without firing at a lost target", async () => {
         const game = await createGame(TeamMode.Solo, "main");
         const human = game.playerBarn.addTestPlayer({ name: "human" });

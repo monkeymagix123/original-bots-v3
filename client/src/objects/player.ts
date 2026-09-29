@@ -56,6 +56,7 @@ import type { UiManager2 } from "../ui/ui2";
 import { Pool } from "./objectPool";
 import type { Obstacle } from "./obstacle";
 import type { Emitter, ParticleBarn } from "./particles";
+import { insertPlayerInfoId } from "./playerInfoIds";
 import { halloweenSpriteMap } from "./projectile";
 import { createCasingParticle } from "./shot";
 
@@ -2763,10 +2764,7 @@ export class PlayerBarn {
             anonName: `Player${info.playerId - 2750}`,
             loadout: util.cloneDeep(info.loadout),
         };
-        this.playerIds.push(info.playerId);
-        this.playerIds.sort((a, b) => {
-            return a - b;
-        });
+        insertPlayerInfoId(this.playerIds, info.playerId);
     }
 
     deletePlayerInfo(id: number) {
@@ -2847,7 +2845,8 @@ export class PlayerBarn {
         // In factionMode, playerStatus refers to all playerIds in the game.
         // In all other modes, playerStatus refers to only playerIds in our team.
         const team = this.getTeamInfo(teamId);
-        const useAllPlayerIds = factionMode || playerStatus.length === this.playerIds.length;
+        const useAllPlayerIds =
+            factionMode || playerStatus.length === this.playerIds.length;
         this.debugAllPlayerStatus = !factionMode && useAllPlayerIds;
         const playerIds = useAllPlayerIds ? this.playerIds : team.playerIds;
 

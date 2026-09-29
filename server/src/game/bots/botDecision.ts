@@ -116,6 +116,7 @@ export class BotDecisionMaker {
     private decisionCooldown = 0;
     private sawVisibleEnemy = false;
     private sightReactionRemaining = 0;
+    private healingThreatReactionRemaining?: number;
     private searchBestDistance = Infinity;
     private searchNoProgressTime = 0;
     private readonly previouslyVisibleEnemyIds = new Set<number>();
@@ -151,6 +152,7 @@ export class BotDecisionMaker {
         player: Player,
         perception: BotPerceptionSnapshot,
         preferredDistance: number,
+        attackRange = Infinity,
     ): BotDecision {
         this.stateAge += dt;
         this.decisionCooldown -= dt;
@@ -249,6 +251,24 @@ export class BotDecisionMaker {
             !perception.visibleEnemies.some(
                 (enemy) => enemy.id === this.lastDecision.target?.id,
             );
+        const targetableThreat = perception.visibleEnemies.some(
+            (enemy) => enemy.distance <= attackRange,
+        );
+        let healingThreatRecognized = false;
+        if (this.state === "healing" && targetableThreat) {
+            if (this.healingThreatReactionRemaining === undefined) {
+                this.healingThreatReactionRemaining = this.rng.range(
+                    ...this.profile.reactionTime,
+                );
+            }
+            this.healingThreatReactionRemaining = Math.max(
+                0,
+                this.healingThreatReactionRemaining - dt,
+            );
+            healingThreatRecognized = this.healingThreatReactionRemaining === 0;
+        } else {
+            this.healingThreatReactionRemaining = undefined;
+        }
 
         // Keep the current intention briefly on first sight. Aim has its own
         // reaction delay, but combat movement also needs recognition time.
@@ -278,6 +298,15 @@ export class BotDecisionMaker {
                 return this.lastDecision;
             }
         }
+        if (
+            this.healingThreatReactionRemaining !== undefined &&
+            this.healingThreatReactionRemaining > 0 &&
+            !perception.outsideZone &&
+            player.health >= 28 &&
+            !lostTarget
+        ) {
+            return this.lastDecision;
+        }
 
         const urgent =
             zoneRecognitionCompleted ||
@@ -285,6 +314,7 @@ export class BotDecisionMaker {
             player.health < 28 ||
             lostTarget ||
             sightReactionCompleted ||
+            healingThreatRecognized ||
             searchGoalReached ||
             searchGoalStalled ||
             coverGoalReached ||
@@ -353,6 +383,7 @@ export class BotDecisionMaker {
         } else if (
             lowHealth &&
             hasHealing &&
+            !targetableThreat &&
             (!visible || visible.distance > preferredDistance * 1.4) &&
             this.profile.tacticalJudgment > this.rng.next() * 0.85
         ) {

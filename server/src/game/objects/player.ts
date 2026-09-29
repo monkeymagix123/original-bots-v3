@@ -527,7 +527,10 @@ export class PlayerBarn {
         return this.teams.find((team) => team.id === teamId) ?? this.getSmallestTeam();
     }
 
-    getGroupAndTeam({ groupData }: JoinTokenData, forcedTeam?: Team):
+    getGroupAndTeam(
+        { groupData }: JoinTokenData,
+        forcedTeam?: Team,
+    ):
         | {
               group?: Group;
               team?: Team;
@@ -536,7 +539,9 @@ export class PlayerBarn {
         if (!this.game.isTeamMode) return undefined;
 
         let group = this.groupsByHash.get(groupData.groupHashToJoin);
-        let team = forcedTeam ?? (this.game.map.factionMode ? this.getSmallestTeam() : undefined);
+        let team =
+            forcedTeam ??
+            (this.game.map.factionMode ? this.getSmallestTeam() : undefined);
 
         if (
             forcedTeam &&
@@ -2628,7 +2633,7 @@ export class Player extends BaseGameObject {
             updateMsg.activePlayerData = player;
         }
 
-        updateMsg.playerInfos = player._firstUpdate
+        updateMsg.playerInfos = this._firstUpdate
             ? playerBarn.players
             : playerBarn.newPlayers;
 
@@ -4031,8 +4036,7 @@ export class Player extends BaseGameObject {
         const players: Player[] = this.game.modeManager.getPlayerStatusPlayers(this)!;
         const isWaveMap = !!this.game.map.mapDef.isWave;
         return players.map((p) => {
-            const debugBotVisible =
-                Config.bots.debugMapIndicators && (p.isAi || p.bot);
+            const debugBotVisible = Config.bots.debugMapIndicators && (p.isAi || p.bot);
             const visible =
                 debugBotVisible ||
                 (isWaveMap && (p.isAi || p.bot)) ||
