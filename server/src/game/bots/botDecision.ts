@@ -101,6 +101,12 @@ const COVER_ARRIVAL_RADIUS = 1.5;
 const COVER_PROGRESS_DISTANCE = 0.5;
 const COVER_STALL_SECONDS = 1.8;
 const COVER_REENTRY_COOLDOWN = 1.5;
+const LOOT_PROGRESS_DISTANCE = 0.5;
+const LOOT_STALL_SECONDS = 3.5;
+const LOOT_ARRIVAL_RADIUS = 2.5;
+const LOOT_PICKUP_DWELL_SECONDS = 1.2;
+const LOOT_RETRY_SECONDS = 4;
+const LOOT_UPGRADE_MARGIN = 2.5;
 
 /** Slow, hysteretic utility decision maker. It is intentionally not called every game tick. */
 export class BotDecisionMaker {
@@ -117,6 +123,12 @@ export class BotDecisionMaker {
     private coverNoProgressTime = 0;
     private coverReentryRemaining = 0;
     private zoneRecognitionRemaining?: number;
+    private lootTarget?: Loot;
+    private lootBestDistance = Infinity;
+    private lootNoProgressTime = 0;
+    private lootArrivalTime = 0;
+    private blockedLoot?: Loot;
+    private blockedLootRemaining = 0;
     private lastDecision: BotDecision = {
         state: "searching",
         movement: "hold",
@@ -143,6 +155,7 @@ export class BotDecisionMaker {
         this.stateAge += dt;
         this.decisionCooldown -= dt;
         this.coverReentryRemaining = Math.max(0, this.coverReentryRemaining - dt);
+        this.blockedLootRemaining = Math.max(0, this.blockedLootRemaining - dt);
 
         const currentSearchGoal =
             this.state === "searching" ? this.lastDecision.destination : undefined;
@@ -179,6 +192,31 @@ export class BotDecisionMaker {
                 (cover) =>
                     v2.distance(cover.position, currentCoverGoal) <= COVER_ARRIVAL_RADIUS,
             );
+
+        const currentLoot = this.state === "looting" ? this.lootTarget : undefined;
+        const lootStillUseful =
+            !!currentLoot &&
+            !currentLoot.destroyed &&
+            perception.nearbyLoot.includes(currentLoot) &&
+            lootValue(player, currentLoot) > 0;
+        const lootDistance = lootStillUseful
+            ? v2.distance(player.pos, currentLoot.pos)
+            : Infinity;
+        if (lootDistance < this.lootBestDistance - LOOT_PROGRESS_DISTANCE) {
+            this.lootBestDistance = lootDistance;
+            this.lootNoProgressTime = 0;
+        } else if (lootStillUseful) {
+            this.lootNoProgressTime += dt;
+        }
+        this.lootArrivalTime =
+            lootStillUseful && lootDistance <= LOOT_ARRIVAL_RADIUS
+                ? this.lootArrivalTime + dt
+                : 0;
+        const lootGoalLost = !!currentLoot && !lootStillUseful;
+        const lootGoalStalled =
+            lootStillUseful && this.lootNoProgressTime >= LOOT_STALL_SECONDS;
+        const lootPickupTimedOut =
+            lootStillUseful && this.lootArrivalTime >= LOOT_PICKUP_DWELL_SECONDS;
 
         // A zone boundary is noticed once, after a skill-dependent delay.
         // Re-rolling awareness every tick would undo an established rotation.
@@ -252,6 +290,9 @@ export class BotDecisionMaker {
             coverGoalReached ||
             coverGoalStalled ||
             coverGoalInvalid ||
+            lootGoalLost ||
+            lootGoalStalled ||
+            lootPickupTimedOut ||
             newVisibleThreat;
         if (this.decisionCooldown > 0 && !urgent) return this.lastDecision;
         this.decisionCooldown = this.rng.range(...this.profile.decisionInterval);
@@ -264,7 +305,22 @@ export class BotDecisionMaker {
             player.invManager.has("bandage") || player.invManager.has("healthkit");
         const usefulLoot = perception.nearbyLoot
             .map((loot) => ({ loot, value: lootValue(player, loot) }))
-            .filter((candidate) => candidate.value > 0);
+            .filter(
+                (candidate) =>
+                    candidate.value > 0 &&
+                    (this.blockedLootRemaining <= 0 ||
+                        candidate.loot !== this.blockedLoot),
+            );
+        const lootScore = (candidate: (typeof usefulLoot)[number]): number =>
+            candidate.value - v2.distance(player.pos, candidate.loot.pos) * 0.2;
+        const bestLoot = usefulLoot.reduce<(typeof usefulLoot)[number] | undefined>(
+            (best, candidate) =>
+                !best || lootScore(candidate) > lootScore(best) ? candidate : best,
+            undefined,
+        );
+        const selectedLoot = usefulLoot.find(
+            (candidate) => candidate.loot === currentLoot,
+        );
         const activeWeapon = player.weapons[player.curWeapIdx];
         const isGun =
             player.curWeapIdx === GameConfig.WeaponSlot.Primary ||
@@ -283,6 +339,7 @@ export class BotDecisionMaker {
         let wantsToReload = false;
         let switchWeapon: number | undefined;
         let useItem: string | undefined;
+        let chosenLoot: Loot | undefined;
         let reason = "maintaining current intent";
         let transitionReason = this.lastDecision.transitionReason;
 
@@ -388,19 +445,24 @@ export class BotDecisionMaker {
             destination = remembered.position;
             reason = "checking the last seen position without tracking through cover";
         } else if (
-            usefulLoot.length > 0 &&
-            this.personality.lootGreed > this.rng.next() * 0.9
+            bestLoot &&
+            !lootGoalStalled &&
+            !lootPickupTimedOut &&
+            (selectedLoot || this.personality.lootGreed > this.rng.next() * 0.9)
         ) {
-            const loot = usefulLoot.reduce((best, candidate) =>
-                candidate.value - v2.distance(player.pos, candidate.loot.pos) * 0.2 >
-                best.value - v2.distance(player.pos, best.loot.pos) * 0.2
-                    ? candidate
-                    : best,
-            ).loot;
+            const loot =
+                selectedLoot &&
+                lootScore(selectedLoot) + LOOT_UPGRADE_MARGIN >= lootScore(bestLoot)
+                    ? selectedLoot.loot
+                    : bestLoot.loot;
+            chosenLoot = loot;
             nextState = "looting";
             movement = "travel";
             destination = v2.copy(loot.pos);
-            reason = "moving to locally visible loot";
+            reason =
+                loot === currentLoot
+                    ? "continuing toward chosen loot"
+                    : "moving to locally visible loot";
         } else {
             nextState = "searching";
             movement = "travel";
@@ -429,6 +491,25 @@ export class BotDecisionMaker {
             this.state = nextState;
             this.stateAge = 0;
             this.resetStateCommitment();
+        }
+        if (this.state === "looting") {
+            if (chosenLoot !== this.lootTarget) {
+                this.lootTarget = chosenLoot;
+                this.lootBestDistance = chosenLoot
+                    ? v2.distance(player.pos, chosenLoot.pos)
+                    : Infinity;
+                this.lootNoProgressTime = 0;
+                this.lootArrivalTime = 0;
+            }
+        } else {
+            if ((lootGoalStalled || lootPickupTimedOut) && currentLoot) {
+                this.blockedLoot = currentLoot;
+                this.blockedLootRemaining = LOOT_RETRY_SECONDS;
+            }
+            this.lootTarget = undefined;
+            this.lootBestDistance = Infinity;
+            this.lootNoProgressTime = 0;
+            this.lootArrivalTime = 0;
         }
         if (
             this.state === "searching" &&

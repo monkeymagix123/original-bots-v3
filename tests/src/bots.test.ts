@@ -677,6 +677,129 @@ describe("bot decisions", () => {
         expect(result.destination).toEqual(v2.create(5, 0));
     });
 
+    test("keeps moving to selected loot until it is picked up or lost", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(51),
+            "defensive",
+        );
+        personality.lootGreed = 1;
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(51));
+        const player = {
+            __id: 1,
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const loot = { type: "m870", pos: v2.create(8, 0), ownerId: 0 };
+        const sighted = { ...emptySnapshot(), nearbyLoot: [loot] as never };
+        expect(decisions.update(0.1, player as never, sighted, 12).state).toBe("looting");
+
+        while (v2.distance(player.pos, loot.pos) > 1) {
+            const decision = decisions.update(0.1, player as never, sighted, 12);
+            expect(decision.state).toBe("looting");
+            expect(decision.destination).toEqual(loot.pos);
+            const direction = v2.directionNormalized(player.pos, loot.pos);
+            v2.set(player.pos, v2.add(player.pos, v2.mul(direction, 0.4)));
+        }
+        // A successful pickup removes the item from local perception.
+        expect(decisions.update(0.1, player as never, emptySnapshot(), 12).state).toBe(
+            "searching",
+        );
+    });
+
+    test("releases blocked loot and avoids immediately retrying it", () => {
+        const { profile, personality } = createBotProfile(
+            "skilled",
+            new BotRandom(52),
+            "defensive",
+        );
+        personality.lootGreed = 1;
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(52));
+        const player = {
+            __id: 1,
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const loot = { type: "m870", pos: v2.create(8, 0), ownerId: 0 };
+        const sighted = { ...emptySnapshot(), nearbyLoot: [loot] as never };
+        expect(decisions.update(0.1, player as never, sighted, 12).state).toBe("looting");
+        for (let i = 0; i < 30; i++) {
+            expect(decisions.update(0.1, player as never, sighted, 12).state).toBe(
+                "looting",
+            );
+        }
+        let released = false;
+        for (let i = 0; i < 10; i++) {
+            if (decisions.update(0.1, player as never, sighted, 12).state !== "looting") {
+                released = true;
+                break;
+            }
+        }
+        expect(released).toBe(true);
+        for (let i = 0; i < 20; i++) {
+            expect(decisions.update(0.1, player as never, sighted, 12).state).toBe(
+                "searching",
+            );
+        }
+    });
+
+    test("switches loot target for a clearly better nearby item", () => {
+        const { profile, personality } = createBotProfile(
+            "expert",
+            new BotRandom(53),
+            "defensive",
+        );
+        personality.lootGreed = 1;
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(53));
+        const player = {
+            __id: 1,
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const far = { type: "m870", pos: v2.create(18, 0), ownerId: 0 };
+        const near = { type: "m870", pos: v2.create(2, 0), ownerId: 0 };
+        expect(
+            decisions.update(
+                0.1,
+                player as never,
+                { ...emptySnapshot(), nearbyLoot: [far] as never },
+                12,
+            ).destination,
+        ).toEqual(far.pos);
+        expect(
+            decisions.update(
+                0.1,
+                player as never,
+                { ...emptySnapshot(), nearbyLoot: [far, near] as never },
+                12,
+            ).destination,
+        ).toEqual(near.pos);
+    });
+
     test("switches to a loaded secondary gun under pressure", () => {
         const { profile, personality } = createBotProfile(
             "casual",
