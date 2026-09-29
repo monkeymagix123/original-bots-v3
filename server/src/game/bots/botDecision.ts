@@ -90,6 +90,14 @@ function lootValue(player: Player, loot: Loot): number {
     }
 }
 
+// At the normal 12-unit/s move speed, this radius lets a new destination be
+// chosen before keyboard movement repeatedly crosses the old point.
+const SEARCH_ARRIVAL_RADIUS = 1.5;
+// Allow the movement controller's stuck detection and short recovery to run
+// before replacing a goal that has made no meaningful progress.
+const SEARCH_PROGRESS_DISTANCE = 0.5;
+const SEARCH_STALL_SECONDS = 1.8;
+
 /** Slow, hysteretic utility decision maker. It is intentionally not called every game tick. */
 export class BotDecisionMaker {
     state: BotState = "searching";
@@ -98,6 +106,8 @@ export class BotDecisionMaker {
     private decisionCooldown = 0;
     private sawVisibleEnemy = false;
     private sightReactionRemaining = 0;
+    private searchBestDistance = Infinity;
+    private searchNoProgressTime = 0;
     private lastDecision: BotDecision = {
         state: "searching",
         movement: "hold",
@@ -123,6 +133,21 @@ export class BotDecisionMaker {
     ): BotDecision {
         this.stateAge += dt;
         this.decisionCooldown -= dt;
+
+        const currentSearchGoal =
+            this.state === "searching" ? this.lastDecision.destination : undefined;
+        const searchDistance = currentSearchGoal
+            ? v2.distance(player.pos, currentSearchGoal)
+            : Infinity;
+        if (searchDistance < this.searchBestDistance - SEARCH_PROGRESS_DISTANCE) {
+            this.searchBestDistance = searchDistance;
+            this.searchNoProgressTime = 0;
+        } else if (currentSearchGoal) {
+            this.searchNoProgressTime += dt;
+        }
+        const searchGoalReached = searchDistance <= SEARCH_ARRIVAL_RADIUS;
+        const searchGoalStalled =
+            !!currentSearchGoal && this.searchNoProgressTime >= SEARCH_STALL_SECONDS;
 
         const lostTarget =
             this.lastDecision.target?.visible &&
@@ -156,6 +181,8 @@ export class BotDecisionMaker {
             player.health < 28 ||
             lostTarget ||
             sightReactionCompleted ||
+            searchGoalReached ||
+            searchGoalStalled ||
             (perception.visibleEnemies.length > 0 && this.state !== "engaging");
         if (this.decisionCooldown > 0 && !urgent) return this.lastDecision;
         this.decisionCooldown = this.rng.range(...this.profile.decisionInterval);
@@ -291,14 +318,19 @@ export class BotDecisionMaker {
         } else {
             nextState = "searching";
             movement = "travel";
-            // Search destinations are local and approximate, avoiding global omniscient scans.
-            const angle = this.rng.range(-Math.PI, Math.PI);
-            const distance = this.rng.range(7, 17 + this.profile.movementSkill * 9);
-            destination = v2.add(
-                player.pos,
-                v2.create(Math.cos(angle) * distance, Math.sin(angle) * distance),
-            );
-            reason = "exploring a nearby unsearched direction";
+            if (currentSearchGoal && !searchGoalReached && !searchGoalStalled) {
+                destination = currentSearchGoal;
+                reason = "continuing toward a local search destination";
+            } else {
+                // Search destinations are local and approximate, avoiding global omniscient scans.
+                const angle = this.rng.range(-Math.PI, Math.PI);
+                const distance = this.rng.range(7, 17 + this.profile.movementSkill * 9);
+                destination = v2.add(
+                    player.pos,
+                    v2.create(Math.cos(angle) * distance, Math.sin(angle) * distance),
+                );
+                reason = "exploring a nearby unsearched direction";
+            }
         }
 
         const canInterrupt = urgent || this.stateAge >= this.minStateTime;
@@ -308,6 +340,17 @@ export class BotDecisionMaker {
             this.state = nextState;
             this.stateAge = 0;
             this.resetStateCommitment();
+        }
+        if (
+            this.state === "searching" &&
+            destination &&
+            destination !== currentSearchGoal
+        ) {
+            this.searchBestDistance = v2.distance(player.pos, destination);
+            this.searchNoProgressTime = 0;
+        } else if (this.state !== "searching") {
+            this.searchBestDistance = Infinity;
+            this.searchNoProgressTime = 0;
         }
 
         this.lastDecision = {

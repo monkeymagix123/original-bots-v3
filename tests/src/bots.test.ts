@@ -134,6 +134,92 @@ describe("bot decisions", () => {
         "casual",
         "skilled",
         "expert",
+    ] as const)("%s search goals persist during seeded travel", (difficulty) => {
+        let goalChanges = 0;
+        let sharpTurns = 0;
+        for (let seed = 1; seed <= 100; seed++) {
+            const { profile, personality } = createBotProfile(
+                difficulty,
+                new BotRandom(seed),
+                "aggressive",
+            );
+            const decisions = new BotDecisionMaker(
+                profile,
+                personality,
+                new BotRandom(seed + 2000),
+            );
+            const player = {
+                pos: v2.create(0, 0),
+                health: 100,
+                curWeapIdx: GameConfig.WeaponSlot.Primary,
+                weapons: [
+                    { type: "mp5", ammo: 20 },
+                    { type: "", ammo: 0 },
+                ],
+                invManager: { has: () => false },
+            };
+            let previousGoal: ReturnType<typeof v2.create> | undefined;
+            let previousDirection: ReturnType<typeof v2.create> | undefined;
+            for (let tick = 0; tick < 300; tick++) {
+                const decision = decisions.update(
+                    0.1,
+                    player as never,
+                    emptySnapshot(),
+                    12,
+                );
+                expect(decision.state).toBe("searching");
+                expect(decision.destination).toBeDefined();
+                const goal = decision.destination!;
+                if (previousGoal && v2.distance(previousGoal, goal) > 0.001) {
+                    goalChanges++;
+                }
+                const direction = v2.directionNormalized(player.pos, goal);
+                if (previousDirection && v2.dot(previousDirection, direction) < 0) {
+                    sharpTurns++;
+                }
+                previousGoal = v2.copy(goal);
+                previousDirection = direction;
+                // 4 units/s models imperfect travel through open ground.
+                v2.set(player.pos, v2.add(player.pos, v2.mul(direction, 0.4)));
+            }
+        }
+        expect(goalChanges / 100).toBeLessThan(15);
+        expect(sharpTurns / 100).toBeLessThan(10);
+    });
+
+    test("search replaces a blocked goal after sustained lack of progress", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(34),
+            "aggressive",
+        );
+        profile.decisionInterval = [0.1, 0.1];
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(34));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const first = decisions.update(0.1, player as never, emptySnapshot(), 12);
+        const firstGoal = v2.copy(first.destination!);
+        for (let i = 0; i < 10; i++) {
+            const decision = decisions.update(0.1, player as never, emptySnapshot(), 12);
+            expect(decision.destination).toEqual(firstGoal);
+        }
+        const recovered = decisions.update(0.9, player as never, emptySnapshot(), 12);
+        expect(recovered.destination).not.toEqual(firstGoal);
+    });
+
+    test.each([
+        "beginner",
+        "casual",
+        "skilled",
+        "expert",
     ] as const)("%s waits for recognition before changing movement on first sight", (difficulty) => {
         const { profile, personality } = createBotProfile(
             difficulty,
