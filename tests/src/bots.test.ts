@@ -426,6 +426,116 @@ describe("bot decisions", () => {
         expect(decision.destination).toEqual(danger.zoneCenter);
     });
 
+    test.each([
+        ["beginner", 1.2, 2.1],
+        ["casual", 0.7, 1.3],
+        ["skilled", 0.3, 0.7],
+        ["expert", 0.05, 0.3],
+    ] as const)("%s recognizes zone pressure once, then keeps rotating", (difficulty, earliestMean, latestMean) => {
+        const danger = {
+            ...emptySnapshot(),
+            outsideZone: true,
+            zoneCenter: v2.create(100, 0),
+        };
+        let firstRotationSeconds = 0;
+        for (let seed = 1; seed <= 100; seed++) {
+            const { profile, personality } = createBotProfile(
+                difficulty,
+                new BotRandom(seed),
+                "defensive",
+            );
+            const decisions = new BotDecisionMaker(
+                profile,
+                personality,
+                new BotRandom(seed + 2000),
+            );
+            const player = {
+                pos: v2.create(0, 0),
+                health: 100,
+                curWeapIdx: GameConfig.WeaponSlot.Primary,
+                weapons: [
+                    { type: "mp5", ammo: 20 },
+                    { type: "", ammo: 0 },
+                ],
+                invManager: { has: () => false },
+            };
+            let firstTick = -1;
+            for (let tick = 0; tick < 100; tick++) {
+                const decision = decisions.update(0.1, player as never, danger, 12);
+                if (decision.state === "zone-rotating" && firstTick < 0) {
+                    firstTick = tick;
+                }
+                if (firstTick >= 0) expect(decision.state).toBe("zone-rotating");
+            }
+            expect(firstTick).toBeGreaterThanOrEqual(0);
+            firstRotationSeconds += firstTick * 0.1;
+        }
+        const mean = firstRotationSeconds / 100;
+        expect(mean).toBeGreaterThan(earliestMean);
+        expect(mean).toBeLessThan(latestMean);
+    });
+
+    test("leaves zone rotation on safety and handles critical threat before zone recognition", () => {
+        const { profile, personality } = createBotProfile(
+            "beginner",
+            new BotRandom(35),
+            "defensive",
+        );
+        personality.riskTolerance = 0.5;
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(35));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const danger = {
+            ...emptySnapshot(),
+            outsideZone: true,
+            zoneCenter: v2.create(100, 0),
+        };
+        expect(decisions.update(0.1, player as never, danger, 12).state).toBe(
+            "searching",
+        );
+        player.health = 20;
+        const threatened = {
+            ...danger,
+            visibleEnemies: [
+                {
+                    id: 2,
+                    position: v2.create(12, 0),
+                    velocity: v2.create(0, 0),
+                    visible: true,
+                    seenAt: 0,
+                    age: 0,
+                    distance: 12,
+                },
+            ],
+        };
+        expect(decisions.update(0.1, player as never, threatened, 12).state).toBe(
+            "disengaging",
+        );
+        player.health = 100;
+        expect(decisions.update(2, player as never, danger, 12).state).toBe(
+            "zone-rotating",
+        );
+        player.health = 20;
+        expect(decisions.update(0.1, player as never, threatened, 12).state).toBe(
+            "disengaging",
+        );
+        player.health = 100;
+        expect(decisions.update(0.1, player as never, danger, 12).state).toBe(
+            "zone-rotating",
+        );
+        expect(decisions.update(0.1, player as never, emptySnapshot(), 12).state).toBe(
+            "searching",
+        );
+    });
+
     test("a brief glimpse does not trigger an immediate chase through cover", () => {
         const { profile, personality } = createBotProfile(
             "casual",

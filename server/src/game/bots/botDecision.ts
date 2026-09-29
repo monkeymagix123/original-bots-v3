@@ -116,6 +116,7 @@ export class BotDecisionMaker {
     private coverBestDistance = Infinity;
     private coverNoProgressTime = 0;
     private coverReentryRemaining = 0;
+    private zoneRecognitionRemaining?: number;
     private lastDecision: BotDecision = {
         state: "searching",
         movement: "hold",
@@ -179,6 +180,32 @@ export class BotDecisionMaker {
                     v2.distance(cover.position, currentCoverGoal) <= COVER_ARRIVAL_RADIUS,
             );
 
+        // A zone boundary is noticed once, after a skill-dependent delay.
+        // Re-rolling awareness every tick would undo an established rotation.
+        let zoneRecognitionCompleted = false;
+        if (perception.outsideZone) {
+            if (this.zoneRecognitionRemaining === undefined) {
+                const noticeDelay =
+                    this.profile.reactionTime[1] === 0
+                        ? 0
+                        : (1 - this.profile.zoneAwareness) * this.rng.range(1.5, 2.5);
+                this.zoneRecognitionRemaining = noticeDelay;
+                zoneRecognitionCompleted = noticeDelay === 0;
+            }
+            if (this.zoneRecognitionRemaining > 0) {
+                this.zoneRecognitionRemaining = Math.max(
+                    0,
+                    this.zoneRecognitionRemaining - dt,
+                );
+                zoneRecognitionCompleted = this.zoneRecognitionRemaining === 0;
+            }
+        } else {
+            this.zoneRecognitionRemaining = undefined;
+        }
+        const zoneRecognized =
+            perception.outsideZone && this.zoneRecognitionRemaining === 0;
+        const reachedSafety = !perception.outsideZone && this.state === "zone-rotating";
+
         const lostTarget =
             this.lastDecision.target?.visible &&
             !perception.visibleEnemies.some(
@@ -206,6 +233,7 @@ export class BotDecisionMaker {
             if (
                 this.sightReactionRemaining > 0 &&
                 !perception.outsideZone &&
+                !reachedSafety &&
                 player.health >= 28 &&
                 !lostTarget
             ) {
@@ -214,7 +242,8 @@ export class BotDecisionMaker {
         }
 
         const urgent =
-            perception.outsideZone ||
+            zoneRecognitionCompleted ||
+            reachedSafety ||
             player.health < 28 ||
             lostTarget ||
             sightReactionCompleted ||
@@ -257,10 +286,9 @@ export class BotDecisionMaker {
         let reason = "maintaining current intent";
         let transitionReason = this.lastDecision.transitionReason;
 
-        if (
-            perception.outsideZone &&
-            this.profile.zoneAwareness > this.rng.next() * 0.9
-        ) {
+        // Immediate visible danger at critical health can interrupt a zone run.
+        // With no active threat, keep the committed rotation until safety.
+        if (zoneRecognized && !(player.health < 28 && visible)) {
             nextState = "zone-rotating";
             movement = "travel";
             destination = perception.zoneCenter;
