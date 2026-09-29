@@ -17,7 +17,6 @@ function wrapAngle(angle: number): number {
 export class BotAimController {
     private angle = 0;
     private error = 0;
-    private errorVelocity = 0;
     private targetId?: number;
     private reactionRemaining = 0;
 
@@ -42,9 +41,20 @@ export class BotAimController {
         if (targetId !== this.targetId) {
             this.targetId = targetId;
             this.reactionRemaining = this.rng.range(...this.profile.reactionTime);
-            this.error += this.rng.normal() * this.profile.aimErrorRadians;
+            this.error = this.rng.normal() * this.profile.aimErrorRadians;
         }
         this.reactionRemaining = Math.max(0, this.reactionRemaining - dt);
+
+        // Seeing a new target does not let an ordinary bot begin correcting on the
+        // same input update. Keep the previous cursor direction during reaction.
+        if (this.reactionRemaining > 0) {
+            return {
+                direction: v2.create(Math.cos(this.angle), Math.sin(this.angle)),
+                readyToFire: false,
+                errorRadians: Math.abs(this.error),
+                reactionRemaining: this.reactionRemaining,
+            };
+        }
 
         const distance = v2.distance(shooterPosition, targetPosition);
         const leadQuality = this.profile.weaponKnowledge * this.profile.aimAccuracy;
@@ -58,13 +68,17 @@ export class BotAimController {
             predicted.x - shooterPosition.x,
         );
 
-        // A damped wandering error produces drift and correction, not frame-wise noise.
+        // Mean-reverting drift retains a nonzero skill-dependent error even after
+        // tracking a stationary target for a long time. The variance is stable
+        // across different input update rates.
         const pressureScale = 1 + (moving ? 0.45 : 0) + (underPressure ? 0.5 : 0);
-        const desiredSigma = this.profile.aimErrorRadians * pressureScale;
-        this.errorVelocity += this.rng.normal() * desiredSigma * dt * 2.2;
-        this.errorVelocity -= this.errorVelocity * Math.min(1, dt * 4.5);
-        this.error += this.errorVelocity * dt;
-        this.error -= this.error * Math.min(1, dt * (1.2 + this.profile.aimAccuracy * 4));
+        const distanceScale = 0.65 + Math.min(distance, 45) / 45;
+        const desiredSigma =
+            this.profile.aimErrorRadians * 0.45 * pressureScale * distanceScale;
+        const decay = Math.exp(-2.4 * dt);
+        this.error =
+            this.error * decay +
+            this.rng.normal() * desiredSigma * Math.sqrt(1 - decay * decay);
 
         const desiredAngle = idealAngle + this.error;
         const delta = wrapAngle(desiredAngle - this.angle);

@@ -77,6 +77,8 @@ export class BotManager {
         );
         if (Config.bots.aimSkill !== undefined) {
             profile.aimAccuracy = this.clampSkill(Config.bots.aimSkill);
+            // Accuracy drives the persistent tracking error, not just fire timing.
+            profile.aimErrorRadians = 0.28 - 0.27 * profile.aimAccuracy;
         }
         if (Config.bots.movementSkill !== undefined) {
             profile.movementSkill = this.clampSkill(Config.bots.movementSkill);

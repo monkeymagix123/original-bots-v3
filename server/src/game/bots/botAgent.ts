@@ -110,6 +110,11 @@ export class BotAgent {
         }
 
         if (decision.wantsToReload) msg.addInput(GameConfig.Input.Reload);
+        if (decision.switchWeapon === GameConfig.WeaponSlot.Primary) {
+            msg.addInput(GameConfig.Input.EquipPrimary);
+        } else if (decision.switchWeapon === GameConfig.WeaponSlot.Secondary) {
+            msg.addInput(GameConfig.Input.EquipSecondary);
+        }
         if (movement.useDoor) msg.addInput(GameConfig.Input.Use);
         if (
             decision.state === "looting" &&

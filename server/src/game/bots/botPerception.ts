@@ -8,7 +8,6 @@ import type { BotSkillProfile } from "./botDifficulty";
 
 export interface EnemyMemory {
     id: number;
-    player?: Player;
     position: Vec2;
     velocity: Vec2;
     visible: boolean;
@@ -71,7 +70,6 @@ export class BotPerception {
 
             const seen: EnemyMemory = {
                 id: candidate.__id,
-                player: candidate,
                 position: v2.copy(candidate.pos),
                 velocity: v2.copy(candidate.moveVel),
                 visible: true,
@@ -86,8 +84,8 @@ export class BotPerception {
         const rememberedEnemies: EnemyMemory[] = [];
         for (const [id, memory] of this.memory) {
             const age = this.time - memory.seenAt;
-            const player = memory.player;
-            if (age > this.profile.memorySeconds || !player || player.dead) {
+            // An unseen death is not information the bot should receive.
+            if (age > this.profile.memorySeconds) {
                 this.memory.delete(id);
                 continue;
             }
@@ -96,7 +94,6 @@ export class BotPerception {
             // Deliberately do not extrapolate an unseen player's exact movement.
             rememberedEnemies.push({
                 ...memory,
-                player: undefined,
                 position: v2.copy(memory.position),
                 velocity: v2.create(0, 0),
                 visible: false,

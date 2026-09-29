@@ -72,10 +72,22 @@ export class BotMovementController {
                     this.strafeTime -= dt;
                     if (this.strafeTime <= 0) {
                         // Reversal is a decision held for hundreds of milliseconds.
-                        if (this.rng.chance(0.35 + this.profile.dodgingSkill * 0.35)) {
+                        const styleReversal =
+                            this.personality.playstyle === "movement-heavy"
+                                ? 0.2
+                                : this.personality.playstyle === "aim-focused"
+                                  ? -0.2
+                                  : 0;
+                        if (
+                            this.rng.chance(
+                                0.35 + this.profile.dodgingSkill * 0.35 + styleReversal,
+                            )
+                        ) {
                             this.strafeDirection = this.strafeDirection === 1 ? -1 : 1;
                         }
-                        this.strafeTime = this.rng.range(0.42, 1.05);
+                        const styleDuration =
+                            this.personality.playstyle === "movement-heavy" ? 0.8 : 1;
+                        this.strafeTime = this.rng.range(0.42, 1.05) * styleDuration;
                     }
                     direction = v2.normalizeSafe(
                         v2.add(

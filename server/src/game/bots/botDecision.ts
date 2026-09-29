@@ -1,5 +1,7 @@
+import { GameObjectDefs } from "../../../../shared/defs/gameObjectDefs";
 import { GameConfig } from "../../../../shared/gameConfig";
 import { type Vec2, v2 } from "../../../../shared/utils/v2";
+import type { Loot } from "../objects/loot";
 import type { Player } from "../objects/player";
 import type { BotPersonality } from "./botBrain";
 import type { BotSkillProfile } from "./botDifficulty";
@@ -33,6 +35,7 @@ export interface BotDecision {
     destination?: Vec2;
     wantsToShoot: boolean;
     wantsToReload: boolean;
+    switchWeapon?: number;
     useItem?: string;
     reason: string;
     transitionReason: string;
@@ -44,6 +47,47 @@ function nearest(enemies: EnemyMemory[]): EnemyMemory | undefined {
         if (!result || enemy.distance < result.distance) result = enemy;
     }
     return result;
+}
+
+function lootValue(player: Player, loot: Loot): number {
+    if (loot.ownerId !== 0 && loot.ownerId !== player.__id) return 0;
+    const def = GameObjectDefs[loot.type];
+    if (!def) return 0;
+    switch (def.type) {
+        case "gun":
+            // A free slot is useful; replacing a gun needs a separate comparison.
+            return player.weapons[GameConfig.WeaponSlot.Primary].type === "" ||
+                player.weapons[GameConfig.WeaponSlot.Secondary].type === ""
+                ? 9
+                : 0;
+        case "ammo":
+        case "heal":
+        case "boost":
+        case "scope":
+        case "throwable":
+            if (!player.invManager.isValid(loot.type)) return 0;
+            if (
+                player.invManager.get(loot.type) >=
+                player.invManager.getMaxCapacity(loot.type)
+            )
+                return 0;
+            if (def.type === "heal") return player.health < 80 ? 8 : 4;
+            if (def.type === "ammo") {
+                const activeDef = GameObjectDefs[player.activeWeapon];
+                return activeDef?.type === "gun" && activeDef.ammo === loot.type ? 7 : 2;
+            }
+            return def.type === "boost" ? 5 : 3;
+        case "helmet":
+        case "chest":
+        case "backpack":
+            return player.getGearLevel(loot.type) > player.getGearLevel(player[def.type])
+                ? 8
+                : 0;
+        case "melee":
+            return player.weapons[GameConfig.WeaponSlot.Melee].type === "fists" ? 4 : 0;
+        default:
+            return 0;
+    }
 }
 
 /** Slow, hysteretic utility decision maker. It is intentionally not called every game tick. */
@@ -78,9 +122,16 @@ export class BotDecisionMaker {
         this.stateAge += dt;
         this.decisionCooldown -= dt;
 
+        const lostTarget =
+            this.lastDecision.target?.visible &&
+            !perception.visibleEnemies.some(
+                (enemy) => enemy.id === this.lastDecision.target?.id,
+            );
+
         const urgent =
             perception.outsideZone ||
             player.health < 28 ||
+            lostTarget ||
             (perception.visibleEnemies.length > 0 && this.state !== "engaging");
         if (this.decisionCooldown > 0 && !urgent) return this.lastDecision;
         this.decisionCooldown = this.rng.range(...this.profile.decisionInterval);
@@ -91,17 +142,26 @@ export class BotDecisionMaker {
         const lowHealth = player.health < 52;
         const hasHealing =
             player.invManager.has("bandage") || player.invManager.has("healthkit");
+        const usefulLoot = perception.nearbyLoot
+            .map((loot) => ({ loot, value: lootValue(player, loot) }))
+            .filter((candidate) => candidate.value > 0);
         const activeWeapon = player.weapons[player.curWeapIdx];
         const isGun =
             player.curWeapIdx === GameConfig.WeaponSlot.Primary ||
             player.curWeapIdx === GameConfig.WeaponSlot.Secondary;
         const emptyGun = isGun && activeWeapon.ammo <= 0;
+        const otherGunSlot =
+            player.curWeapIdx === GameConfig.WeaponSlot.Primary
+                ? GameConfig.WeaponSlot.Secondary
+                : GameConfig.WeaponSlot.Primary;
+        const otherGun = player.weapons[otherGunSlot];
 
         let nextState = this.state;
         let movement: MovementIntent = "hold";
         let destination: Vec2 | undefined;
         let wantsToShoot = false;
         let wantsToReload = false;
+        let switchWeapon: number | undefined;
         let useItem: string | undefined;
         let reason = "maintaining current intent";
         let transitionReason = this.lastDecision.transitionReason;
@@ -126,14 +186,21 @@ export class BotDecisionMaker {
             useItem =
                 player.health <= 40 && player.invManager.has("healthkit")
                     ? "healthkit"
-                    : "bandage";
+                    : player.invManager.has("bandage")
+                      ? "bandage"
+                      : "healthkit";
             reason = "using a plausible low-threat healing window";
         } else if (emptyGun) {
             nextState = "reloading";
             movement = visible ? "retreat" : "hold";
             destination = target?.position;
-            wantsToReload = true;
-            reason = "magazine empty; creating space while reloading";
+            if (visible && otherGun.type && otherGun.ammo > 0) {
+                switchWeapon = otherGunSlot;
+                reason = "switching to a loaded weapon under pressure";
+            } else {
+                wantsToReload = true;
+                reason = "magazine empty; creating space while reloading";
+            }
         } else if (
             visible &&
             perception.coverCandidates.length > 0 &&
@@ -184,14 +251,15 @@ export class BotDecisionMaker {
             destination = remembered.position;
             reason = "checking the last seen position without tracking through cover";
         } else if (
-            perception.nearbyLoot.length > 0 &&
+            usefulLoot.length > 0 &&
             this.personality.lootGreed > this.rng.next() * 0.9
         ) {
-            const loot = perception.nearbyLoot.reduce((best, candidate) =>
-                v2.distance(player.pos, candidate.pos) < v2.distance(player.pos, best.pos)
+            const loot = usefulLoot.reduce((best, candidate) =>
+                candidate.value - v2.distance(player.pos, candidate.loot.pos) * 0.2 >
+                best.value - v2.distance(player.pos, best.loot.pos) * 0.2
                     ? candidate
                     : best,
-            );
+            ).loot;
             nextState = "looting";
             movement = "travel";
             destination = v2.copy(loot.pos);
@@ -225,6 +293,7 @@ export class BotDecisionMaker {
             destination,
             wantsToShoot,
             wantsToReload,
+            switchWeapon,
             useItem,
             reason,
             transitionReason,
