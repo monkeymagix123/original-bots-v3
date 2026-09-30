@@ -679,6 +679,8 @@
   "game-assault": "Assault",
   "game-select-class": "SELECT A CLASS",
   "game-enter-game": "ENTER GAME",
+  "game-full_adrenaline": "Full Adrenaline",
+  "game-full_adrenaline-desc": "Max adrenaline.",
   "game-leadership": "Leadership",
   "game-leadership-desc": "Max adrenaline.</br>Increased size.",
   "game-assume_leadership": "Assume Leadership",
