@@ -324,9 +324,10 @@ export class PlayerBarn {
             "",
             "",
             null,
+            undefined,
+            params.isAi ?? false,
         );
 
-        player.isAi = params.isAi ?? false;
         player.hasClient = params.hasClient ?? true;
 
         this.activatePlayer(player, group, team);
@@ -1181,6 +1182,14 @@ export class Player extends BaseGameObject {
         }
 
         for (const perk of newPerks) {
+            if (this.hasPerk(perk)) continue;
+            // Role perks take priority when configured starting perks fill the UI.
+            if (this.perks.length >= 4) {
+                const replace = this.perks.find((owned) => !owned.isFromRole);
+                if (!replace) break;
+                if (replace.droppable) this.dropLoot(replace.type);
+                this.removePerk(replace.type);
+            }
             this.addPerk(perk, false, undefined, true);
         }
     }
@@ -1302,6 +1311,7 @@ export class Player extends BaseGameObject {
 
         this.recalculateScale();
         this.recalculateMinBoost();
+        this.boost = Math.max(this.boost, this.minBoost);
     }
 
     removePerk(type: string): void {
@@ -1479,6 +1489,7 @@ export class Player extends BaseGameObject {
         findGameIp: string,
         userId: string | null,
         questIds?: string[],
+        isAi = false,
     ) {
         super(game, pos);
 
@@ -1491,6 +1502,7 @@ export class Player extends BaseGameObject {
         this.ip = ip;
         this.findGameIp = findGameIp;
         this.userId = userId;
+        this.isAi = isAi;
 
         this.questManager.quests = (questIds ?? []).map((id) => ({ id, delta: 0 }));
 
@@ -1550,8 +1562,18 @@ export class Player extends BaseGameObject {
         this.outfit = defaultItems.outfit;
         assertType(this.outfit, "outfit", false);
 
-        for (const perk of defaultItems.perks) {
+        const startingPerks = this.isAi
+            ? GameConfig.player.botStartingPerks
+            : defaultItems.perks;
+        assert(startingPerks.length <= 4, "Starting perk list exceeds four UI slots");
+        const seenStartingPerks = new Set<string>();
+        for (const perk of startingPerks) {
             assertType(perk.type, "perk", false);
+            assert(
+                !seenStartingPerks.has(perk.type),
+                `Duplicate starting perk: ${perk.type}`,
+            );
+            seenStartingPerks.add(perk.type);
             this.addPerk(perk.type, perk.droppable);
         }
 

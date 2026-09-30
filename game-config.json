@@ -1,46 +1,51 @@
 {
-    "player": {
-        "defaultItems": {
-            "weapons": [
-                { "type": "", "ammo": 0 },
-                { "type": "", "ammo": 0 },
-                { "type": "fists", "ammo": 0 },
-                { "type": "", "ammo": 0 }
-            ],
-            "outfit": "outfitBase",
-            "backpack": "backpack00",
-            "helmet": "helmet01",
-            "chest": "chest01",
-            "scope": "4xscope",
-            "perks": [
-                {
-                    "type": "endless_ammo",
-                    "droppable": false
-                },
-                {
-                    "type": "leadership",
-                    "droppable": false
-                },
-                {
-                    "type": "small_arms",
-                    "droppable": false
-                }
-            ],
-            "inventory": {
-                "frag": 0,
-                "smoke": 0,
-                "strobe": 0,
-                "mirv": 0,
-                "bandage": 5,
-                "healthkit": 1,
-                "soda": 0,
-                "painkiller": 0,
-                "1xscope": 1,
-                "2xscope": 0,
-                "4xscope": 1,
-                "8xscope": 0,
-                "15xscope": 0
-            }
+  "player": {
+    "defaultItems": {
+      "weapons": [
+        { "type": "", "ammo": 0 },
+        { "type": "", "ammo": 0 },
+        { "type": "fists", "ammo": 0 },
+        { "type": "", "ammo": 0 }
+      ],
+      "outfit": "outfitBase",
+      "backpack": "backpack00",
+      "helmet": "helmet01",
+      "chest": "chest01",
+      "scope": "4xscope",
+      "perks": [
+        {
+          "type": "endless_ammo",
+          "droppable": false
+        },
+        {
+          "type": "leadership",
+          "droppable": false
+        },
+        {
+          "type": "small_arms",
+          "droppable": false
         }
-    }
+      ],
+      "inventory": {
+        "frag": 0,
+        "smoke": 0,
+        "strobe": 0,
+        "mirv": 0,
+        "bandage": 5,
+        "healthkit": 1,
+        "soda": 0,
+        "painkiller": 0,
+        "1xscope": 1,
+        "2xscope": 0,
+        "4xscope": 1,
+        "8xscope": 0,
+        "15xscope": 0
+      }
+    },
+    "botStartingPerks": [
+      { "type": "endless_ammo", "droppable": false },
+      { "type": "leadership", "droppable": false },
+      { "type": "small_arms", "droppable": false }
+    ]
+  }
 }

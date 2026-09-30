@@ -1,5 +1,5 @@
-import { util } from "./utils/util";
 import gameConfig from "../game-config.json";
+import { util } from "./utils/util";
 
 export enum TeamMode {
     Solo = 1,
@@ -190,6 +190,7 @@ const GameConfigBase = {
         perkModeRoleSelectDuration: 20,
 
         /* STRIP_FROM_PROD_CLIENT:START */
+        botStartingPerks: [] as Array<{ type: string; droppable?: boolean }>,
         defaultItems: {
             weapons: [
                 { type: "", ammo: 0 },

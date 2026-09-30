@@ -1,4 +1,7 @@
 export const PerkProperties = {
+    full_adrenaline: {
+        minBoost: 100,
+    },
     leadership: {
         minBoost: 100,
         scale: 0.25,
@@ -125,6 +128,20 @@ export interface PerkDef {
 }
 
 export const PerkDefs: Record<string, PerkDef> = {
+    full_adrenaline: {
+        name: "Full Adrenaline",
+        type: "perk",
+        lootImg: {
+            sprite: "loot-perk-full-adrenaline.img",
+            tint: 0xffffff,
+            border: "loot-circle-outer-03.img",
+            borderTint: 0xffffff,
+            scale: 0.275,
+        },
+        sound: {
+            pickup: "perk_pickup_01",
+        },
+    },
     leadership: {
         name: "Leadership",
         type: "perk",

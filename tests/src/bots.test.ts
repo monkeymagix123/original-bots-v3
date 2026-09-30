@@ -41,6 +41,74 @@ describe("training bot profiles", () => {
     });
 });
 
+describe("starting perks", () => {
+    test("human and internal bot lists are independent at spawn", async () => {
+        const humanPerks = GameConfig.player.defaultItems.perks;
+        const botPerks = GameConfig.player.botStartingPerks;
+        GameConfig.player.defaultItems.perks = [
+            { type: "endless_ammo", droppable: false },
+        ];
+        GameConfig.player.botStartingPerks = [
+            { type: "full_adrenaline", droppable: false },
+        ];
+        try {
+            const game = await createGame(TeamMode.Solo, "main");
+            const human = game.playerBarn.addTestPlayer({ name: "human" });
+            const bot = game.botManager.spawnBot({ name: "bot", seed: 101 });
+            expect(human.perks.map((perk) => perk.type)).toEqual(["endless_ammo"]);
+            expect(bot.perks.map((perk) => perk.type)).toEqual(["full_adrenaline"]);
+            expect(human.boost).toBe(0);
+            expect(bot.minBoost).toBe(100);
+            expect(bot.boost).toBe(100);
+            expect(bot.scale).toBe(1);
+        } finally {
+            GameConfig.player.defaultItems.perks = humanPerks;
+            GameConfig.player.botStartingPerks = botPerks;
+        }
+    });
+
+    test("rejects invalid, duplicate, and overfull bot perk lists", async () => {
+        const original = GameConfig.player.botStartingPerks;
+        try {
+            const game = await createGame(TeamMode.Solo, "main");
+            GameConfig.player.botStartingPerks = [
+                { type: "not_a_perk", droppable: false },
+            ];
+            expect(() => game.playerBarn.addTestPlayer({ isAi: true })).toThrow(
+                /Invalid item type/,
+            );
+            GameConfig.player.botStartingPerks = [
+                { type: "full_adrenaline", droppable: false },
+                { type: "full_adrenaline", droppable: false },
+            ];
+            expect(() => game.playerBarn.addTestPlayer({ isAi: true })).toThrow(
+                /Duplicate starting perk/,
+            );
+            GameConfig.player.botStartingPerks = Array.from({ length: 5 }, () => ({
+                type: "full_adrenaline",
+                droppable: false,
+            }));
+            expect(() => game.playerBarn.addTestPlayer({ isAi: true })).toThrow(
+                /four UI slots/,
+            );
+        } finally {
+            GameConfig.player.botStartingPerks = original;
+        }
+    });
+
+    test("role grants do not duplicate starting perks or overflow four slots", async () => {
+        const game = await createGame(TeamMode.Solo, "main");
+        const player = game.playerBarn.addTestPlayer({ name: "role-test" });
+        player.promoteToRole("leader");
+        expect(player.perks.filter((perk) => perk.type === "leadership")).toHaveLength(1);
+        player.promoteToRole("captain");
+        expect(player.perks.length).toBeLessThanOrEqual(4);
+        expect(new Set(player.perks.map((perk) => perk.type)).size).toBe(
+            player.perks.length,
+        );
+    });
+});
+
 describe("human-like aim", () => {
     test("does not fire on first sight and rotates instead of snapping", () => {
         const profile = getBotSkillProfile("casual");
