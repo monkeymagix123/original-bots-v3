@@ -398,7 +398,6 @@ export interface ConfigType {
         brainMix: BrainMixConfig;
         giveStartingWeapons: boolean;
         debugCombat: boolean;
-        debugBotStability: boolean;
         debugMapIndicators: boolean;
         enableQuickSwitch: boolean;
         allowBotVsBot: boolean;
