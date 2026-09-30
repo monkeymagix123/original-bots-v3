@@ -198,6 +198,101 @@ describe("bot decisions", () => {
         zoneCenter: v2.create(0, 0),
     });
 
+    test("keeps a visible target through a brief closer glimpse, then switches after recognition", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(80),
+            "defensive",
+        );
+        profile.reactionTime = [0.4, 0.4];
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(80));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+        };
+        const a = {
+            id: 2,
+            position: v2.create(12, 0),
+            velocity: v2.create(0, 0),
+            visible: true,
+            seenAt: 0,
+            age: 0,
+            distance: 12,
+        };
+        const b = { ...a, id: 3, position: v2.create(-8, 0), distance: 8 };
+        const seen = (enemies: (typeof a)[]) => ({
+            ...emptySnapshot(),
+            visibleEnemies: enemies,
+        });
+        expect(decisions.update(0.5, player as never, seen([a]), 12).target?.id).toBe(2);
+        const glimpse = decisions.update(0.1, player as never, seen([a, b]), 12);
+        expect(glimpse.target?.id).toBe(2);
+        expect(glimpse.destination).toEqual(a.position);
+        expect(decisions.update(0.1, player as never, seen([a]), 12).target?.id).toBe(2);
+        for (let i = 0; i < 3; i++) {
+            const waiting = decisions.update(0.1, player as never, seen([a, b]), 12);
+            expect(waiting.target?.id).toBe(2);
+        }
+        const switched = decisions.update(0.1, player as never, seen([a, b]), 12);
+        expect(switched.target?.id).toBe(3);
+        expect(switched.destination).toEqual(b.position);
+        expect(decisions.update(0.1, player as never, seen([a]), 12).target?.id).toBe(2);
+    });
+
+    test("direct damage or critical health can interrupt target commitment", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(81),
+            "defensive",
+        );
+        profile.reactionTime = [0.5, 0.5];
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(81));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 20 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false },
+            lastDamagedBy: undefined as undefined | { __id: number },
+        };
+        const a = {
+            id: 2,
+            position: v2.create(12, 0),
+            velocity: v2.create(0, 0),
+            visible: true,
+            seenAt: 0,
+            age: 0,
+            distance: 12,
+        };
+        const b = { ...a, id: 3, position: v2.create(-8, 0), distance: 8 };
+        const seen = { ...emptySnapshot(), visibleEnemies: [a, b] };
+        decisions.update(0.5, player as never, { ...seen, visibleEnemies: [a] }, 12);
+        expect(decisions.update(0.1, player as never, seen, 12).target?.id).toBe(2);
+        player.health = 90;
+        player.lastDamagedBy = { __id: 3 };
+        expect(decisions.update(0.1, player as never, seen, 12).target?.id).toBe(3);
+
+        const critical = new BotDecisionMaker(profile, personality, new BotRandom(82));
+        player.health = 100;
+        player.lastDamagedBy = undefined;
+        critical.update(0.5, player as never, { ...seen, visibleEnemies: [a] }, 12);
+        player.health = 20;
+        expect(critical.update(0.1, player as never, seen, 12).target?.id).toBe(3);
+    });
+
     test("holds a selected cover goal through routine decision reviews", () => {
         const { profile, personality } = createBotProfile(
             "casual",

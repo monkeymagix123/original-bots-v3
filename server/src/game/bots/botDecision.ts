@@ -116,6 +116,9 @@ export class BotDecisionMaker {
     private decisionCooldown = 0;
     private sawVisibleEnemy = false;
     private sightReactionRemaining = 0;
+    private switchCandidateId?: number;
+    private switchReactionRemaining = 0;
+    private observedHealth?: number;
     private healingThreatReactionRemaining?: number;
     private searchBestDistance = Infinity;
     private searchNoProgressTime = 0;
@@ -154,6 +157,9 @@ export class BotDecisionMaker {
         preferredDistance: number,
         attackRange = Infinity,
     ): BotDecision {
+        const tookDamage =
+            this.observedHealth !== undefined && player.health < this.observedHealth;
+        this.observedHealth = player.health;
         this.stateAge += dt;
         this.decisionCooldown -= dt;
         this.coverReentryRemaining = Math.max(0, this.coverReentryRemaining - dt);
@@ -251,6 +257,37 @@ export class BotDecisionMaker {
             !perception.visibleEnemies.some(
                 (enemy) => enemy.id === this.lastDecision.target?.id,
             );
+        const currentVisible = perception.visibleEnemies.find(
+            (enemy) => enemy.id === this.lastDecision.target?.id,
+        );
+        const nearestVisible = nearest(perception.visibleEnemies);
+        const directAttacker =
+            tookDamage && player.lastDamagedBy
+                ? perception.visibleEnemies.find(
+                      (enemy) => enemy.id === player.lastDamagedBy?.__id,
+                  )
+                : undefined;
+        const switchCandidate =
+            currentVisible && nearestVisible?.id !== currentVisible.id
+                ? nearestVisible
+                : undefined;
+        if (switchCandidate && !directAttacker && player.health >= 28) {
+            if (this.switchCandidateId !== switchCandidate.id) {
+                this.switchCandidateId = switchCandidate.id;
+                this.switchReactionRemaining = this.rng.range(
+                    ...this.profile.reactionTime,
+                );
+            }
+            this.switchReactionRemaining =
+                this.switchReactionRemaining <= dt + 1e-9
+                    ? 0
+                    : this.switchReactionRemaining - dt;
+        } else {
+            this.switchCandidateId = undefined;
+            this.switchReactionRemaining = 0;
+        }
+        const switchReactionCompleted =
+            !!switchCandidate && this.switchReactionRemaining === 0;
         const targetableThreat = perception.visibleEnemies.some(
             (enemy) => enemy.distance <= attackRange,
         );
@@ -314,6 +351,8 @@ export class BotDecisionMaker {
             player.health < 28 ||
             lostTarget ||
             sightReactionCompleted ||
+            switchReactionCompleted ||
+            !!directAttacker ||
             healingThreatRecognized ||
             searchGoalReached ||
             searchGoalStalled ||
@@ -327,7 +366,11 @@ export class BotDecisionMaker {
         if (this.decisionCooldown > 0 && !urgent) return this.lastDecision;
         this.decisionCooldown = this.rng.range(...this.profile.decisionInterval);
 
-        const visible = nearest(perception.visibleEnemies);
+        const visible =
+            directAttacker ??
+            (switchCandidate && this.switchReactionRemaining > 0
+                ? currentVisible
+                : nearestVisible);
         const remembered = nearest(perception.rememberedEnemies);
         const target = visible ?? remembered;
         const lowHealth = player.health < 52;
