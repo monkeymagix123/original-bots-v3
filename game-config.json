@@ -20,10 +20,6 @@
         {
           "type": "full_adrenaline",
           "droppable": false
-        },
-        {
-          "type": "small_arms",
-          "droppable": false
         }
       ],
       "inventory": {
@@ -44,7 +40,7 @@
     },
     "botStartingPerks": [
       { "type": "endless_ammo", "droppable": false },
-      { "type": "leadership", "droppable": false },
+      { "type": "full_adrenaline", "droppable": false },
       { "type": "small_arms", "droppable": false }
     ]
   }
