@@ -1,5 +1,5 @@
 import { GameObjectDefs } from "../../../../shared/defs/gameObjectDefs";
-import { GameConfig } from "../../../../shared/gameConfig";
+import { GameConfig, type InventoryItem } from "../../../../shared/gameConfig";
 import { type Vec2, v2 } from "../../../../shared/utils/v2";
 import type { Loot } from "../objects/loot";
 import type { Player } from "../objects/player";
@@ -356,6 +356,13 @@ export class BotDecisionMaker {
             player.curWeapIdx === GameConfig.WeaponSlot.Primary ||
             player.curWeapIdx === GameConfig.WeaponSlot.Secondary;
         const emptyGun = isGun && activeWeapon.ammo <= 0;
+        const activeGunDef = emptyGun ? GameObjectDefs[activeWeapon.type] : undefined;
+        const canReload =
+            activeGunDef?.type === "gun" &&
+            ((!activeGunDef.ignoreEndlessAmmo &&
+                (activeGunDef.ammoInfinite || player.hasPerk?.("endless_ammo"))) ||
+                (activeGunDef.ammo in GameConfig.bagSizes &&
+                    player.invManager.get(activeGunDef.ammo as InventoryItem) > 0));
         const otherGunSlot =
             player.curWeapIdx === GameConfig.WeaponSlot.Primary
                 ? GameConfig.WeaponSlot.Secondary
@@ -397,7 +404,10 @@ export class BotDecisionMaker {
                       ? "bandage"
                       : "healthkit";
             reason = "using a plausible low-threat healing window";
-        } else if (emptyGun) {
+        } else if (
+            emptyGun &&
+            (canReload || (visible && otherGun.type && otherGun.ammo > 0))
+        ) {
             nextState = "reloading";
             movement = visible ? "retreat" : "hold";
             destination = target?.position;
@@ -408,6 +418,11 @@ export class BotDecisionMaker {
                 wantsToReload = true;
                 reason = "magazine empty; creating space while reloading";
             }
+        } else if (emptyGun && visible) {
+            nextState = "disengaging";
+            movement = "retreat";
+            destination = visible.position;
+            reason = "out of ammunition; breaking contact";
         } else if (
             currentCoverGoal &&
             visible &&

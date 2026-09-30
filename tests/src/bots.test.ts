@@ -902,7 +902,8 @@ describe("bot decisions", () => {
                 { type: "mp5", ammo: 0 },
                 { type: "m870", ammo: 5 },
             ],
-            invManager: { has: () => false },
+            invManager: { has: () => false, isValid: () => true, get: () => 0 },
+            hasPerk: () => false,
         };
         const snapshot = emptySnapshot();
         snapshot.visibleEnemies = [
@@ -919,6 +920,151 @@ describe("bot decisions", () => {
 
         const result = decisions.update(1, player as never, snapshot, 15);
         expect(result.switchWeapon).toBe(GameConfig.WeaponSlot.Secondary);
+        expect(result.wantsToReload).toBe(false);
+    });
+
+    test("searches for supplies without reserve ammo and retreats from a visible threat", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(72),
+            "defensive",
+        );
+        profile.reactionTime = [0, 0];
+        profile.minStateDuration = [0, 0];
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(72));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 0 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false, isValid: () => true, get: () => 0 },
+            hasPerk: () => false,
+        };
+        const alone = decisions.update(1, player as never, emptySnapshot(), 12);
+        expect(alone.state).toBe("searching");
+        expect(alone.movement).toBe("travel");
+        expect(alone.wantsToReload).toBe(false);
+
+        const threat = {
+            ...emptySnapshot(),
+            visibleEnemies: [
+                {
+                    id: 2,
+                    position: v2.create(10, 0),
+                    velocity: v2.create(0, 0),
+                    visible: true,
+                    seenAt: 0,
+                    age: 0,
+                    distance: 10,
+                },
+            ],
+        };
+        const underThreat = decisions.update(1, player as never, threat, 12);
+        expect(underThreat.state).toBe("disengaging");
+        expect(underThreat.movement).toBe("retreat");
+        expect(underThreat.wantsToReload).toBe(false);
+        expect(underThreat.wantsToShoot).toBe(false);
+    });
+
+    test("reloads an empty gun with reserve ammo or an infinite-ammo rule", () => {
+        for (const scenario of [
+            { weapon: "mp5", reserve: 30, endless: false },
+            { weapon: "mp5", reserve: 0, endless: true },
+            { weapon: "m9_cursed", reserve: 0, endless: false },
+        ]) {
+            const { profile, personality } = createBotProfile(
+                "casual",
+                new BotRandom(73),
+                "defensive",
+            );
+            profile.minStateDuration = [0, 0];
+            const decisions = new BotDecisionMaker(
+                profile,
+                personality,
+                new BotRandom(73),
+            );
+            const player = {
+                pos: v2.create(0, 0),
+                health: 100,
+                curWeapIdx: GameConfig.WeaponSlot.Primary,
+                weapons: [
+                    { type: scenario.weapon, ammo: 0 },
+                    { type: "", ammo: 0 },
+                ],
+                invManager: {
+                    has: () => false,
+                    isValid: () => true,
+                    get: () => scenario.reserve,
+                },
+                hasPerk: () => scenario.endless,
+            };
+            const result = decisions.update(1, player as never, emptySnapshot(), 12);
+            expect(result.state).toBe("reloading");
+            expect(result.wantsToReload).toBe(true);
+        }
+    });
+
+    test("ignores the endless-ammo perk when a gun definition excludes it", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(74),
+            "defensive",
+        );
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(74));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "flare_gun", ammo: 0 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false, get: () => 0 },
+            hasPerk: () => true,
+        };
+        const result = decisions.update(1, player as never, emptySnapshot(), 12);
+        expect(result.state).toBe("searching");
+        expect(result.wantsToReload).toBe(false);
+    });
+
+    test("can pursue nearby ammo while its current magazine is empty", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(75),
+            "defensive",
+        );
+        personality.lootGreed = 1;
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(75));
+        const player = {
+            __id: 1,
+            pos: v2.create(0, 0),
+            health: 100,
+            activeWeapon: "mp5",
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 0 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: {
+                has: () => false,
+                get: () => 0,
+                getMaxCapacity: () => 100,
+                isValid: () => true,
+            },
+            hasPerk: () => false,
+        };
+        const ammo = { type: "9mm", pos: v2.create(8, 0), ownerId: 0 };
+        const result = decisions.update(
+            1,
+            player as never,
+            { ...emptySnapshot(), nearbyLoot: [ammo] as never },
+            12,
+        );
+        expect(result.state).toBe("looting");
+        expect(result.destination).toEqual(ammo.pos);
         expect(result.wantsToReload).toBe(false);
     });
 });
