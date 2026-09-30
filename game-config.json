@@ -14,10 +14,6 @@
       "scope": "4xscope",
       "perks": [
         {
-          "type": "endless_ammo",
-          "droppable": false
-        },
-        {
           "type": "full_adrenaline",
           "droppable": false
         }
