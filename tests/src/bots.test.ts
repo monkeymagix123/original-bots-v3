@@ -1232,6 +1232,93 @@ describe("bot decisions", () => {
     });
 });
 
+describe("bot firing reach", () => {
+    test.each([
+        { weapon: "m870", distance: 24, perks: [], fires: true },
+        { weapon: "m870", distance: 29, perks: [], fires: true },
+        { weapon: "m870", distance: 30, perks: [], fires: true },
+        { weapon: "m870", distance: 31, perks: [], fires: true },
+        { weapon: "m870", distance: 32, perks: [], fires: false },
+        { weapon: "m870", distance: 32, perks: ["high_velocity"], fires: true },
+        { weapon: "usas", distance: 33, perks: [], fires: true },
+        { weapon: "fists", distance: 2, perks: [], fires: true },
+        { weapon: "fists", distance: 3, perks: [], fires: true },
+        { weapon: "fists", distance: 4, perks: [], fires: false },
+        { weapon: "fists", distance: 20, perks: [], fires: false },
+    ])("$weapon at $distance units fires=$fires", ({
+        weapon,
+        distance,
+        perks,
+        fires,
+    }) => {
+        const { profile, personality } = createBotProfile(
+            "expert",
+            new BotRandom(83),
+            "aggressive",
+        );
+        profile.reactionTime = [0, 0];
+        profile.decisionInterval = [0.1, 0.1];
+        profile.minStateDuration = [0, 0];
+        const enemy = {
+            __id: 2,
+            __type: ObjectType.Player,
+            pos: v2.create(distance, 0),
+            moveVel: v2.create(0, 0),
+            layer: 0,
+            teamId: 2,
+            dead: false,
+            downed: false,
+            isAi: false,
+        };
+        const game = {
+            grid: {
+                intersectCollider: () => [enemy],
+                intersectLineSegment: () => [],
+            },
+            gas: { currentPos: v2.create(0, 0), currentRad: 100 },
+            modeManager: { isSolo: true },
+            logger: { debug: () => {} },
+            lootBarn: { loots: [] },
+        };
+        const messages: Array<{ shootStart: boolean }> = [];
+        const player = {
+            __id: 1,
+            pos: v2.create(0, 0),
+            dir: v2.create(1, 0),
+            layer: 0,
+            teamId: 1,
+            dead: false,
+            disconnected: false,
+            health: 100,
+            activeWeapon: weapon,
+            curWeapIdx:
+                weapon === "fists"
+                    ? GameConfig.WeaponSlot.Melee
+                    : GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: weapon === "fists" ? "" : weapon, ammo: 5 },
+                { type: "", ammo: 0 },
+                { type: "fists", ammo: 0 },
+            ],
+            invManager: { has: () => false, get: () => 0 },
+            hasPerk: (perk: string) => perks.includes(perk),
+            damageDealt: 0,
+            damageTaken: 0,
+            kills: 0,
+            timeAlive: 0,
+            handleInput: (msg: { shootStart: boolean }) => messages.push(msg),
+        };
+        const agent = new BotAgent(game as never, player as never, {
+            profile,
+            personality,
+            seed: 83,
+        });
+        for (let tick = 0; tick < 20; tick++) agent.update(0.1);
+        expect(messages.some((msg) => msg.shootStart)).toBe(fires);
+        if (!fires) expect(agent.telemetry.aimPoint).toEqual(enemy.pos);
+    });
+});
+
 describe("intentional movement", () => {
     test("holds a strafe choice instead of reversing with per-frame noise", () => {
         const rng = new BotRandom(71);

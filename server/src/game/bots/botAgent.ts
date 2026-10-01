@@ -1,8 +1,11 @@
 import { GameObjectDefs } from "../../../../shared/defs/gameObjectDefs";
 import type { BulletDef } from "../../../../shared/defs/gameObjects/bulletDefs";
 import type { GunDef } from "../../../../shared/defs/gameObjects/gunDefs";
+import type { MeleeDef } from "../../../../shared/defs/gameObjects/meleeDefs";
+import { PerkProperties } from "../../../../shared/defs/gameObjects/perkDefs";
 import { GameConfig } from "../../../../shared/gameConfig";
 import { InputMsg } from "../../../../shared/net/inputMsg";
+import { ObjectType } from "../../../../shared/net/objectSerializeFns";
 import { type Vec2, v2 } from "../../../../shared/utils/v2";
 import { Config } from "../../config";
 import type { Game } from "../game";
@@ -107,9 +110,37 @@ export class BotAgent {
             );
             msg.toMouseDir = aim.direction;
             msg.toMouseLen = Math.min(64, visibleTarget.distance);
+            const towardTarget = v2.normalizeSafe(
+                v2.sub(visibleTarget.position, this.player.pos),
+                aim.direction,
+            );
+            const projectedBarrel =
+                weapon.barrelLength * Math.max(0, v2.dot(aim.direction, towardTarget));
+            const triggerReach =
+                weapon.triggerReach - weapon.barrelLength + projectedBarrel;
+            const targetObject = this.game.objectRegister?.getById(visibleTarget.id);
+            const targetRadius =
+                targetObject?.__type === ObjectType.Player
+                    ? targetObject.rad
+                    : GameConfig.player.radius;
+            let inReach = visibleTarget.distance <= triggerReach;
+            if (weapon.meleeDef) {
+                const offset = v2.add(
+                    weapon.meleeDef.attack.offset,
+                    v2.create((this.player.scale ?? 1) - 1, 0),
+                );
+                const meleeCenter = v2.add(
+                    this.player.pos,
+                    v2.rotate(offset, Math.atan2(aim.direction.y, aim.direction.x)),
+                );
+                inReach =
+                    v2.distance(meleeCenter, visibleTarget.position) <=
+                    weapon.meleeDef.attack.rad + targetRadius;
+            }
             msg.shootStart =
                 decision.wantsToShoot &&
                 decision.target?.id === visibleTarget.id &&
+                inReach &&
                 aim.readyToFire;
             msg.shootHold = msg.shootStart;
             this.telemetry.aimError = aim.errorRadians;
@@ -194,12 +225,32 @@ export class BotAgent {
         preferredDistance: number;
         projectileSpeed: number;
         maxDistance: number;
+        triggerReach: number;
+        barrelLength: number;
+        meleeDef?: MeleeDef;
     } {
         const def = GameObjectDefs[this.player.activeWeapon];
         if (def?.type === "gun") {
             const gun = def as GunDef;
             const bullet = GameObjectDefs[gun.bulletType] as BulletDef | undefined;
             const maxDistance = bullet?.distance ?? 100;
+            let distanceMult = 1;
+            if (gun.ammo === "9mm" && this.player.hasPerk?.("bonus_9mm")) {
+                distanceMult *= PerkProperties.bonus_9mm.distanceMult;
+            }
+            if (this.player.hasPerk?.("high_velocity")) {
+                distanceMult *= PerkProperties.high_velocity.distanceMult;
+            }
+            const explosion = bullet?.onHit ? GameObjectDefs[bullet.onHit] : undefined;
+            const splashReach = explosion?.type === "explosion" ? explosion.rad.max : 0;
+            // The bullet starts at the muzzle, ahead of the player's center.
+            // Collision radius and bullet distance jitter allow near-edge hits.
+            const triggerReach =
+                maxDistance * distanceMult * (1 + Math.max(0, bullet?.variance ?? 0)) +
+                (bullet?.noDistAdj ? 0 : 1) +
+                gun.barrelLength +
+                GameConfig.player.radius +
+                splashReach;
             let preferredDistance = Math.max(8, Math.min(34, maxDistance * 0.14));
             if (gun.bulletCount > 1) preferredDistance = Math.min(preferredDistance, 11);
             if (gun.fireDelay >= 0.65)
@@ -208,8 +259,32 @@ export class BotAgent {
                 preferredDistance,
                 projectileSpeed: bullet?.speed ?? 100,
                 maxDistance,
+                triggerReach,
+                barrelLength: gun.barrelLength,
             };
         }
-        return { preferredDistance: 2.25, projectileSpeed: 0, maxDistance: 2.25 };
+        if (def?.type === "melee") {
+            const offset = v2.add(
+                def.attack.offset,
+                v2.create((this.player.scale ?? 1) - 1, 0),
+            );
+            const maxDistance =
+                v2.length(offset) + def.attack.rad + GameConfig.player.radius;
+            return {
+                preferredDistance: 2.25,
+                projectileSpeed: 0,
+                maxDistance,
+                triggerReach: maxDistance,
+                barrelLength: 0,
+                meleeDef: def,
+            };
+        }
+        return {
+            preferredDistance: 2.25,
+            projectileSpeed: 0,
+            maxDistance: 2.25,
+            triggerReach: Infinity,
+            barrelLength: 0,
+        };
     }
 }
