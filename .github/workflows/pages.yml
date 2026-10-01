@@ -7,7 +7,7 @@ concurrency:
 on:
   push:
     branches:
-      - offline-mode
+      - main
 
 jobs:
   pages:
