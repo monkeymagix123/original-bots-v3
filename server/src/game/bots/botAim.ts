@@ -19,6 +19,10 @@ export class BotAimController {
     private error = 0;
     private targetId?: number;
     private reactionRemaining = 0;
+    private recognizedVelocity?: Vec2;
+    private pendingVelocity?: Vec2;
+    private velocityReactionRemaining = 0;
+    private velocityChangePending = false;
 
     constructor(
         private readonly profile: BotSkillProfile,
@@ -38,21 +42,78 @@ export class BotAimController {
         moving: boolean,
         underPressure: boolean,
     ): AimResult {
+        let newVelocityChange = false;
         if (targetId !== this.targetId) {
             this.targetId = targetId;
             this.reactionRemaining = this.rng.range(...this.profile.reactionTime);
             this.error = this.rng.normal() * this.profile.aimErrorRadians;
+            this.recognizedVelocity = v2.copy(targetVelocity);
+            this.pendingVelocity = undefined;
+            this.velocityReactionRemaining = 0;
+            this.velocityChangePending = false;
+        } else if (this.recognizedVelocity) {
+            // A direction or speed change needs to remain visible briefly before
+            // it changes projectile lead. Small motion noise can still be tracked.
+            const change = v2.distance(targetVelocity, this.recognizedVelocity);
+            const meaningfulChange = Math.max(
+                4,
+                v2.length(this.recognizedVelocity) * 0.4,
+            );
+            if (change < meaningfulChange) {
+                this.recognizedVelocity = v2.copy(targetVelocity);
+                this.pendingVelocity = undefined;
+                this.velocityReactionRemaining = 0;
+                this.velocityChangePending = false;
+            } else if (this.velocityChangePending) {
+                const pendingChange = this.pendingVelocity
+                    ? v2.distance(targetVelocity, this.pendingVelocity)
+                    : 0;
+                const meaningfulPendingChange = Math.max(
+                    4,
+                    v2.length(this.pendingVelocity ?? targetVelocity) * 0.4,
+                );
+                if (pendingChange >= meaningfulPendingChange) {
+                    // If the old maneuver has already persisted through its
+                    // recognition window, accept it before starting the new one.
+                    if (
+                        this.velocityReactionRemaining <= dt + 1e-9 &&
+                        this.pendingVelocity
+                    ) {
+                        this.recognizedVelocity = v2.copy(this.pendingVelocity);
+                    }
+                    // A different maneuver must earn its own recognition time.
+                    newVelocityChange = true;
+                    this.pendingVelocity = v2.copy(targetVelocity);
+                } else {
+                    this.velocityReactionRemaining =
+                        this.velocityReactionRemaining <= dt + 1e-9
+                            ? 0
+                            : this.velocityReactionRemaining - dt;
+                    if (this.velocityReactionRemaining === 0) {
+                        this.recognizedVelocity = v2.copy(targetVelocity);
+                        this.pendingVelocity = undefined;
+                        this.velocityChangePending = false;
+                    }
+                }
+            } else {
+                newVelocityChange = true;
+                this.pendingVelocity = v2.copy(targetVelocity);
+            }
         }
         this.reactionRemaining = Math.max(0, this.reactionRemaining - dt);
 
         // Seeing a new target does not let an ordinary bot begin correcting on the
         // same input update. Keep the previous cursor direction during reaction.
         if (this.reactionRemaining > 0) {
+            if (newVelocityChange) this.startVelocityRecognition(dt);
             return {
                 direction: v2.create(Math.cos(this.angle), Math.sin(this.angle)),
                 readyToFire: false,
                 errorRadians: Math.abs(this.error),
-                reactionRemaining: this.reactionRemaining,
+                reactionRemaining: Math.max(
+                    this.reactionRemaining,
+                    this.velocityReactionRemaining,
+                ),
             };
         }
 
@@ -61,7 +122,7 @@ export class BotAimController {
         const flightTime = projectileSpeed > 0 ? distance / projectileSpeed : 0;
         const predicted = v2.add(
             targetPosition,
-            v2.mul(targetVelocity, flightTime * leadQuality),
+            v2.mul(this.recognizedVelocity ?? targetVelocity, flightTime * leadQuality),
         );
         const idealAngle = Math.atan2(
             predicted.y - shooterPosition.y,
@@ -89,15 +150,35 @@ export class BotAimController {
 
         const currentError = Math.abs(wrapAngle(idealAngle - this.angle));
         const fireTolerance = 0.05 + (1 - this.profile.aimAccuracy) * 0.2;
+        if (newVelocityChange) {
+            // Sample after the frame's aim noise so an unseen change cannot alter
+            // this update's cursor via a different random draw.
+            this.startVelocityRecognition(dt);
+        }
         return {
             direction: v2.create(Math.cos(this.angle), Math.sin(this.angle)),
             readyToFire: this.reactionRemaining <= 0 && currentError <= fireTolerance,
             errorRadians: currentError,
-            reactionRemaining: this.reactionRemaining,
+            reactionRemaining: Math.max(
+                this.reactionRemaining,
+                this.velocityReactionRemaining,
+            ),
         };
     }
 
     loseTarget(): void {
         this.targetId = undefined;
+        this.recognizedVelocity = undefined;
+        this.pendingVelocity = undefined;
+        this.velocityReactionRemaining = 0;
+        this.velocityChangePending = false;
+    }
+
+    private startVelocityRecognition(dt: number): void {
+        this.velocityReactionRemaining = Math.max(
+            0,
+            this.rng.range(...this.profile.reactionTime) - dt,
+        );
+        this.velocityChangePending = true;
     }
 }

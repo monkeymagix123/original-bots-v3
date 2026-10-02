@@ -411,6 +411,24 @@ export class BotDecisionMaker {
                 ? GameConfig.WeaponSlot.Secondary
                 : GameConfig.WeaponSlot.Primary;
         const otherGun = player.weapons[otherGunSlot];
+        const coverBenefit = Math.max(
+            0,
+            Math.min(1, (perception.coverCandidates[0]?.score ?? 0) / 12),
+        );
+        const coverPressure = Math.max(
+            this.state === "reloading" ? 0.8 : 0,
+            Math.min(1, Math.max(0, (90 - player.health) / 40)),
+        );
+        const coverPropensity = Math.min(
+            1,
+            this.profile.positioningSkill *
+                coverBenefit *
+                coverPressure *
+                (0.35 +
+                    (1 - this.personality.riskTolerance) * 0.9 +
+                    (player.health < 28 ? 0.7 : 0) +
+                    (this.state === "reloading" ? 0.7 : 0)),
+        );
 
         let nextState = this.state;
         let movement: MovementIntent = "hold";
@@ -487,8 +505,7 @@ export class BotDecisionMaker {
             this.coverReentryRemaining <= 0 &&
             !coverGoalReached &&
             !coverGoalStalled &&
-            (player.health < 62 || this.state === "reloading") &&
-            this.profile.positioningSkill > this.rng.next()
+            coverPropensity > this.rng.next()
         ) {
             const candidateIndex = Math.floor(
                 (1 - this.profile.positioningSkill) *
