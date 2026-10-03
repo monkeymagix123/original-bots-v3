@@ -1359,6 +1359,158 @@ describe("bot decisions", () => {
         }
     });
 
+    test("tops up low partial magazines during a safe decision window", () => {
+        const countReloads = (
+            difficulty: "beginner" | "casual" | "skilled" | "expert",
+            ammo: number,
+        ) => {
+            let reloads = 0;
+            for (let seed = 1; seed <= 40; seed++) {
+                const { profile, personality } = createBotProfile(
+                    difficulty,
+                    new BotRandom(seed),
+                    "defensive",
+                );
+                const decisions = new BotDecisionMaker(
+                    profile,
+                    personality,
+                    new BotRandom(seed + 10000),
+                );
+                const player = {
+                    pos: v2.create(0, 0),
+                    health: 100,
+                    curWeapIdx: GameConfig.WeaponSlot.Primary,
+                    weapons: [
+                        { type: "mp5", ammo },
+                        { type: "", ammo: 0 },
+                    ],
+                    invManager: { has: () => false, get: () => 90 },
+                    hasPerk: () => false,
+                };
+                for (let tick = 0; tick < 100; tick++) {
+                    if (
+                        decisions.update(0.05, player as never, emptySnapshot(), 12)
+                            .wantsToReload
+                    ) {
+                        reloads++;
+                        break;
+                    }
+                }
+            }
+            return reloads;
+        };
+        for (const difficulty of ["beginner", "casual", "skilled", "expert"] as const) {
+            expect(countReloads(difficulty, 1)).toBe(40);
+            expect(countReloads(difficulty, 5)).toBe(40);
+            expect(countReloads(difficulty, 30)).toBe(0);
+        }
+        expect(countReloads("beginner", 15)).toBe(0);
+        expect(countReloads("expert", 15)).toBe(40);
+    });
+
+    test("keeps a partial magazine ready near danger or without reserve", () => {
+        const threat = {
+            id: 2,
+            position: v2.create(12, 0),
+            velocity: v2.create(0, 0),
+            visible: true,
+            seenAt: 0,
+            age: 0,
+            distance: 12,
+        };
+        for (const scenario of [
+            { reserve: 0, visibleEnemies: [], rememberedEnemies: [] },
+            { reserve: 90, visibleEnemies: [threat], rememberedEnemies: [] },
+            {
+                reserve: 90,
+                visibleEnemies: [],
+                rememberedEnemies: [{ ...threat, visible: false, age: 0.5 }],
+            },
+        ]) {
+            const { profile, personality } = createBotProfile(
+                "expert",
+                new BotRandom(91),
+                "defensive",
+            );
+            const decisions = new BotDecisionMaker(
+                profile,
+                personality,
+                new BotRandom(91),
+            );
+            const player = {
+                pos: v2.create(0, 0),
+                health: 100,
+                curWeapIdx: GameConfig.WeaponSlot.Primary,
+                weapons: [
+                    { type: "mp5", ammo: 5 },
+                    { type: "", ammo: 0 },
+                ],
+                invManager: { has: () => false, get: () => scenario.reserve },
+                hasPerk: () => false,
+            };
+            const snapshot = {
+                ...emptySnapshot(),
+                visibleEnemies: scenario.visibleEnemies,
+                rememberedEnemies: scenario.rememberedEnemies,
+            };
+            for (let tick = 0; tick < 100; tick++) {
+                expect(
+                    decisions.update(0.05, player as never, snapshot, 12).wantsToReload,
+                ).toBe(false);
+            }
+        }
+    });
+
+    test("leaves a partial reload intent after filling the clip or noticing an enemy", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(92),
+            "defensive",
+        );
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(92));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 5 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false, get: () => 90 },
+            hasPerk: () => false,
+        };
+        let result = decisions.update(2, player as never, emptySnapshot(), 12);
+        expect(result.state).toBe("reloading");
+        expect(result.movement).toBe("hold");
+        player.weapons[0].ammo = 30;
+        for (let tick = 0; tick < 30; tick++) {
+            result = decisions.update(0.05, player as never, emptySnapshot(), 12);
+        }
+        expect(result.state).toBe("searching");
+        expect(result.wantsToReload).toBe(false);
+
+        player.weapons[0].ammo = 5;
+        result = decisions.update(2, player as never, emptySnapshot(), 12);
+        expect(result.state).toBe("reloading");
+        const snapshot = emptySnapshot();
+        snapshot.visibleEnemies = [
+            {
+                id: 2,
+                position: v2.create(12, 0),
+                velocity: v2.create(0, 0),
+                visible: true,
+                seenAt: 0,
+                age: 0,
+                distance: 12,
+            },
+        ];
+        for (let tick = 0; tick < 30; tick++) {
+            result = decisions.update(0.05, player as never, snapshot, 12);
+        }
+        expect(result.state).not.toBe("reloading");
+        expect(result.wantsToReload).toBe(false);
+    });
+
     test("ignores the endless-ammo perk when a gun definition excludes it", () => {
         const { profile, personality } = createBotProfile(
             "casual",
