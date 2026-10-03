@@ -1,15 +1,15 @@
-import { util } from "../../utils/util";
-import { v2 } from "../../utils/v2";
-import { MapId } from "../types/misc";
-import { Main, type PartialMapDef } from "./baseDefs";
+import { GameConfig } from "../../gameConfig.ts";
+import { util } from "../../utils/util.ts";
+import { v2 } from "../../utils/v2.ts";
+import { Main, type PartialMapDef } from "./baseDefs.ts";
 
 const mapDef: PartialMapDef = {
-    mapId: MapId.Cobalt,
+    mapId: GameConfig.MapId.Cobalt,
     desc: {
         name: "Cobalt",
         icon: "img/gui/cobalt.svg",
         buttonCss: "btn-mode-cobalt",
-        backgroundImg: "img/main_splash_cobalt.png",
+        backgroundImg: "img/splashes/desert.webp",
     },
     assets: {
         audio: [
@@ -19,7 +19,7 @@ const mapDef: PartialMapDef = {
             { name: "log_13", channel: "sfx" },
             { name: "log_14", channel: "sfx" },
         ],
-        atlases: ["gradient", "loadout", "shared", "cobalt"],
+        atlases: ["loadout", "shared", "cobalt"],
     },
     biome: {
         colors: {

@@ -1,3 +1,14 @@
+allowBuilds:
+  '@taufik-nurrohman/color-picker': true
+  canvas: true
+  dprint: true
+  esbuild: true
+  sharp: true
+  workerd: true
+ignoredOptionalDependencies:
+  - pg-cloudflare
+ignoreWorkspaceRootCheck: true
+minimumReleaseAge: 10080
 packages:
   - server/
   - shared/
@@ -5,11 +16,4 @@ packages:
   - bot/
   - tests/
   - '!**dist/**'
-
-onlyBuiltDependencies:
-  - '@biomejs/biome'
-  - '@taufik-nurrohman/color-picker'
-  - better-sqlite3
-  - canvas
-  - esbuild
-  - sharp
+shellEmulator: true

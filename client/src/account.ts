@@ -1,85 +1,26 @@
-import $ from "jquery";
-import type {
-    GetPassRequest,
-    LoadoutRequest,
-    LoadoutResponse,
-    ProfileResponse,
-    RefreshQuestRequest,
-    RefreshQuestResponse,
-    SetItemStatusRequest,
-    SetPassUnlockRequest,
-    SetPassUnlockResponse,
-    SetQuestRequest,
-    UsernameRequest,
-    UsernameResponse,
-} from "../../shared/types/user";
-import type { ItemStatus } from "../../shared/utils/loadout";
-import { type Loadout, loadout as loadouts } from "../../shared/utils/loadout";
-import { util } from "../../shared/utils/util";
-import { api } from "./api";
-import type { ConfigManager } from "./config";
-import { errorLogManager } from "./errorLogs";
-import { helpers } from "./helpers";
-import { proxy } from "./proxy";
-import type { Item } from "./ui/loadoutMenu";
+import type { PassState, QuestState } from "../../shared/types/user.ts";
+import type { Item, ItemStatus } from "../../shared/utils/loadout.ts";
+import { type Loadout, loadout as loadouts } from "../../shared/utils/loadout.ts";
+import { util } from "../../shared/utils/util.ts";
+import { api } from "./api.ts";
+import type { ConfigManager } from "./config.ts";
+import { errorLogManager } from "./errorLogs.ts";
+import { helpers } from "./helpers.ts";
+import { proxy } from "./proxy.ts";
 
-type DataOrCallback =
-    | Record<string, unknown>
-    | ((err: null | JQuery.jqXHR<any>, res?: any) => void)
-    | null;
+import { hc } from "hono/client";
+import type { UserRouterApp } from "../../server/src/api/routes/user/UserRouter.ts";
 
-function ajaxRequest(
-    url: string,
-    data: DataOrCallback,
-    cb: (err: null | JQuery.jqXHR<any>, res?: any) => void,
-) {
-    if (typeof data === "function") {
-        cb = data;
-        data = null;
-    }
-    const opts: JQueryAjaxSettings = {
-        url: api.resolveUrl(url),
-        type: "POST",
-        timeout: 10 * 1000,
-        xhrFields: {
-            withCredentials: proxy.anyLoginSupported(),
-        },
-        headers: {
-            // Set a header to guard against CSRF attacks.
-            //
-            // JQuery does this automatically, however we'll add it here explicitly
-            // so the intent is clear incase of refactoring in the future.
-            "X-Requested-With": "XMLHttpRequest",
-        },
-    };
-    if (data) {
-        opts.contentType = "application/json; charset=utf-8";
-        opts.data = JSON.stringify(data);
-    }
-    $.ajax(opts)
-        .done((res) => {
-            cb(null, res);
-        })
-        .fail((e) => {
-            cb(e);
-        });
-}
+type UserRouter = ReturnType<typeof hc<UserRouterApp>>;
 
-export type Quest = {
-    idx: number;
-    type: string;
-    timeAcquired: number;
-    progress: number;
-    target: number;
-    complete: boolean;
-    rerolled: boolean;
-    timeToRefresh: number;
-};
-export type PassType = {
-    type: string;
-    level: number;
-    xp: number;
-    newItems: unknown;
+type AccountEventMap = {
+    request: (account: Account) => void;
+    requestsComplete: () => void;
+    login: (account: Account) => void;
+    loadout: (loadout: Loadout) => void;
+    items: (items: Item[]) => void;
+    error: (error: string, reason?: string) => void;
+    pass: (pass: PassState, quests: QuestState[], resetRefresh: boolean) => void;
 };
 
 export class Account {
@@ -97,36 +38,57 @@ export class Account {
 
     loadout = loadouts.defaultLoadout();
     items: Item[] = [];
-    quests: Quest[] = [];
-    questPriv = "";
-    pass: Record<string, PassType> = {};
+    quests: QuestState[] = [];
+    pass = {} as PassState;
 
-    constructor(public config: ConfigManager) {}
+    router: UserRouter;
 
-    ajaxRequest(url: string, data: DataOrCallback, cb?: (err: any, res?: any) => void) {
-        if (typeof data === "function") {
-            cb = data;
-            data = null;
-        }
-        this.requestsInFlight++;
-        this.emit("request", this);
-
-        ajaxRequest(url, data, (err, res) => {
-            cb!(err, res);
-            this.requestsInFlight--;
-            this.emit("request", this);
-            if (this.requestsInFlight == 0) {
-                this.emit("requestsComplete");
-            }
+    constructor(public config: ConfigManager) {
+        this.router = hc<UserRouterApp>(api.resolveUrl("/api/user"), {
+            init: {
+                credentials: proxy.anyLoginSupported() ? "include" : "omit",
+            },
         });
     }
 
-    addEventListener(event: string, callback: (...args: any[]) => void) {
+    async fetchApi<Path extends keyof UserRouter>(
+        path: Path,
+        body: Parameters<UserRouter[Path]["$post"]>[0],
+        cb: (
+            error: null | any,
+            res: Awaited<ReturnType<Awaited<ReturnType<UserRouter[Path]["$post"]>>["json"]>>,
+        ) => void,
+    ): Promise<void> {
+        this.requestsInFlight++;
+        this.emit("request", this);
+
+        try {
+            const res = await this.router[path].$post(body as any);
+            const data = await res.json();
+            cb(null, data as any);
+        } catch (err) {
+            cb(err, {} as any);
+        }
+
+        this.requestsInFlight--;
+        this.emit("request", this);
+        if (this.requestsInFlight == 0) {
+            this.emit("requestsComplete");
+        }
+    }
+
+    addEventListener<E extends keyof AccountEventMap>(
+        event: E,
+        callback: AccountEventMap[E],
+    ) {
         this.events[event] = this.events[event] || [];
         this.events[event].push(callback);
     }
 
-    removeEventListener(event: string, callback: () => void) {
+    removeEventListener<E extends keyof AccountEventMap>(
+        event: E,
+        callback: AccountEventMap[E],
+    ) {
         const listeners = this.events[event] || [];
         for (let i = listeners.length - 1; i >= 0; i--) {
             if (listeners[i] == callback) {
@@ -135,15 +97,9 @@ export class Account {
         }
     }
 
-    emit(event: string, ...args: any[]) {
+    emit<E extends keyof AccountEventMap>(event: E, ...args: Parameters<AccountEventMap[E]>): void {
         const listenersCopy = (this.events[event] || []).slice(0);
-        // const len = arguments.length;
-        // const data = Array(len > 1 ? len - 1 : 0);
-        // for (let i = 1; i < len; i++) {
-        //     data[i - 1] = arguments[i];
-        // }
         for (let i = 0; i < listenersCopy.length; i++) {
-            // listenersCopy[i].apply(listenersCopy, args);
             listenersCopy[i](...args);
         }
     }
@@ -161,8 +117,8 @@ export class Account {
         this.emit("request", this);
         this.emit("items", []);
 
-        const storedLoadout = this.config.get("loadout");
-        this.loadout = util.mergeDeep({}, loadouts.defaultLoadout(), storedLoadout);
+        const storedLoadout = this.config.get("loadout")!;
+        this.loadout = util.mergeDeep<Loadout>({}, loadouts.defaultLoadout(), storedLoadout);
         this.emit("loadout", this.loadout);
     }
 
@@ -188,15 +144,15 @@ export class Account {
         this.config.set("profile", null);
         this.config.set("sessionCookie", null);
         this.config.set("loadout", loadouts.defaultLoadout());
-        this.ajaxRequest("/api/user/logout", () => {
+        this.fetchApi("logout", {}, () => {
             window.location.reload();
         });
     }
 
     loadProfile() {
         this.loggingIn = !this.loggedIn;
-        this.ajaxRequest("/api/user/profile", (err, data: ProfileResponse) => {
-            const a = this.loggingIn;
+        this.fetchApi("profile", {}, (err, data) => {
+            const wasLogginIn = this.loggingIn;
             this.loggingIn = false;
             this.loggedIn = false;
             this.profile = {} as this["profile"];
@@ -217,7 +173,7 @@ export class Account {
             if (!this.loggedIn) {
                 this.config.set("sessionCookie", null);
             }
-            if (a && this.loggedIn) {
+            if (wasLogginIn && this.loggedIn) {
                 this.emit("login", this);
             }
             this.emit("items", this.items);
@@ -226,7 +182,7 @@ export class Account {
     }
 
     resetStats() {
-        this.ajaxRequest("/api/user/reset_stats", (err) => {
+        this.fetchApi("reset_stats", {}, (err) => {
             if (err) {
                 errorLogManager.storeGeneric("account", "reset_stats_error");
                 this.emit("error", "server_error");
@@ -235,7 +191,7 @@ export class Account {
     }
 
     deleteAccount() {
-        this.ajaxRequest("/api/user/delete", (err) => {
+        this.fetchApi("delete", {}, (err) => {
             if (err) {
                 errorLogManager.storeGeneric("account", "delete_error");
                 this.emit("error", "server_error");
@@ -248,10 +204,7 @@ export class Account {
     }
 
     setUsername(username: string, callback: (err?: string) => void) {
-        const args: UsernameRequest = {
-            username,
-        };
-        this.ajaxRequest("/api/user/username", args, (err, res: UsernameResponse) => {
+        this.fetchApi("username", { json: { username } }, (err, res) => {
             if (err) {
                 errorLogManager.storeGeneric("account", "set_username_error");
                 callback(err);
@@ -274,10 +227,8 @@ export class Account {
         this.config.set("loadout", loadout);
 
         if (!helpers.getCookie("app-data")) return;
-        const args: LoadoutRequest = {
-            loadout: loadout,
-        };
-        this.ajaxRequest("/api/user/loadout", args, (err, res: LoadoutResponse) => {
+
+        this.fetchApi("loadout", { json: { loadout } }, (err, res) => {
             if (err) {
                 errorLogManager.storeGeneric("account", "set_loadout_error");
                 this.emit("error", "server_error");
@@ -303,12 +254,13 @@ export class Account {
                 }
             }
 
-            const args: SetItemStatusRequest = {
-                status,
-                itemTypes,
-            };
             this.emit("items", this.items);
-            this.ajaxRequest("/api/user/set_item_status", args, (err) => {
+            this.fetchApi("set_item_status", {
+                json: {
+                    status,
+                    itemTypes,
+                },
+            }, (err) => {
                 if (err) {
                     errorLogManager.storeGeneric("account", "set_item_status_error");
                 }
@@ -316,31 +268,20 @@ export class Account {
         }
     }
 
-    setQuest(args: SetQuestRequest) {
-        this.ajaxRequest("/api/user/set_quest", args, () => {
-            this.getPass(false);
-        });
-    }
-
     getPass(tryRefreshQuests: boolean) {
-        const args: GetPassRequest = {
-            tryRefreshQuests,
-        };
-        this.ajaxRequest("/api/user/get_pass", args, (err, res) => {
-            this.pass = {};
+        this.fetchApi("get_pass", { json: { tryRefreshQuests } }, (err, res) => {
+            this.pass = {} as PassState;
             this.quests = [];
-            this.questPriv = "";
             if (err || !res.success) {
                 errorLogManager.storeGeneric("account", "get_pass_error");
             } else {
-                this.pass = res.pass || {};
+                this.pass = res.pass || {} as PassState;
                 this.quests = res.quests || [];
-                this.questPriv = res.questPriv || "";
                 this.quests.sort((a, b) => {
                     return a.idx - b.idx;
                 });
                 this.emit("pass", this.pass, this.quests, true);
-                if (this.pass.newItems) {
+                if (this.pass?.newItems) {
                     this.loadProfile();
                 }
             }
@@ -348,41 +289,27 @@ export class Account {
     }
 
     setPassUnlock(unlockType: string) {
-        const args: SetPassUnlockRequest = {
-            unlockType,
-        };
-        this.ajaxRequest(
-            "/api/user/set_pass_unlock",
-            args,
-            (err, res: SetPassUnlockResponse) => {
-                if (err || !res.success) {
-                    errorLogManager.storeGeneric("account", "set_pass_unlock_error");
-                } else {
-                    this.getPass(false);
-                }
-            },
-        );
+        this.fetchApi("set_pass_unlock", { json: { unlockType } }, (err, res) => {
+            if (err || !res.success) {
+                errorLogManager.storeGeneric("account", "set_pass_unlock_error");
+            } else {
+                this.getPass(false);
+            }
+        });
     }
 
     refreshQuest(idx: number) {
-        const args: RefreshQuestRequest = {
-            idx,
-        };
-        this.ajaxRequest(
-            "/api/user/refresh_quest",
-            args,
-            (err, res: RefreshQuestResponse) => {
-                if (err) {
-                    errorLogManager.storeGeneric("account", "refresh_quest_error");
-                    return;
-                }
-                if (res.success) {
-                    this.getPass(false);
-                } else {
-                    // Give the pass UI a chance to update quests
-                    this.emit("pass", this.pass, this.quests, false);
-                }
-            },
-        );
+        this.fetchApi("refresh_quest", { json: { idx } }, (err, res) => {
+            if (err) {
+                errorLogManager.storeGeneric("account", "refresh_quest_error");
+                return;
+            }
+            if (res.success) {
+                this.getPass(false);
+            } else {
+                // Give the pass UI a chance to update quests
+                this.emit("pass", this.pass!, this.quests, false);
+            }
+        });
     }
 }

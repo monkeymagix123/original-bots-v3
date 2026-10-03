@@ -1,22 +1,19 @@
-import { MapObjectDefs } from "../../../../shared/defs/mapObjectDefs";
-import type {
-    BuildingDef,
-    ObstacleDef,
-    StructureDef,
-} from "../../../../shared/defs/mapObjectsTyping";
-import { Puzzles } from "../../../../shared/defs/puzzles";
-import { DamageType } from "../../../../shared/gameConfig";
-import { ObjectType } from "../../../../shared/net/objectSerializeFns";
-import { type AABB, type Collider, coldet } from "../../../../shared/utils/coldet";
-import { collider } from "../../../../shared/utils/collider";
-import { mapHelpers } from "../../../../shared/utils/mapHelpers";
-import { math } from "../../../../shared/utils/math";
-import { type Vec2, v2 } from "../../../../shared/utils/v2";
-import type { Game } from "../game";
-import type { Decal } from "./decal";
-import { BaseGameObject } from "./gameObject";
-import type { Obstacle } from "./obstacle";
-import type { Structure } from "./structure";
+import { Puzzles } from "../../../../shared/defs/puzzles.ts";
+import { MapObjectDefs } from "../../../../shared/defs/register.ts";
+import { DamageType } from "../../../../shared/gameConfig.ts";
+import { ObjectType } from "../../../../shared/net/objectSerializeFns.ts";
+import { type AABB, coldet, type Collider } from "../../../../shared/utils/coldet.ts";
+import { collider } from "../../../../shared/utils/collider.ts";
+import { mapHelpers } from "../../../../shared/utils/mapHelpers.ts";
+import { math } from "../../../../shared/utils/math.ts";
+import { assert, util } from "../../../../shared/utils/util.ts";
+import { v2, type Vec2 } from "../../../../shared/utils/v2.ts";
+import type { Game } from "../game.ts";
+import type { Decal } from "./decal.ts";
+import { BaseGameObject } from "./gameObject.ts";
+import type { Obstacle } from "./obstacle.ts";
+import type { Player } from "./player.ts";
+import type { Structure } from "./structure.ts";
 
 export class Building extends BaseGameObject {
     mapObstacleBounds: Collider[] = [];
@@ -36,15 +33,33 @@ export class Building extends BaseGameObject {
     occupied = false;
 
     hasPuzzle = false;
-    puzzleSolved = false;
-    puzzleErrSeq = 0;
-    puzzleOrder: string[] = [];
-    puzzleResetTimeout?: NodeJS.Timeout;
+
+    puzzle?: {
+        solved: boolean;
+        errSeq: number;
+        inputCode: string[];
+
+        /**
+         * Reset ticker after error or completion
+         */
+        resetTicker: number;
+        /**
+         * Ticker to execute the action after the puzzle is completed
+         */
+        completeTicker: number;
+        /**
+         * Reset ticker after no new puzzle piece has been pressed
+         */
+        idleResetTicker: number;
+
+        interactedBy?: Player;
+    };
 
     scale = 1;
 
     childObjects: Array<Obstacle | Building | Structure | Decal> = [];
     parentStructure?: Structure;
+    parentBuilding?: Building;
 
     surfaces: Array<{
         type: string;
@@ -63,6 +78,15 @@ export class Building extends BaseGameObject {
         healRate: number;
     }> = [];
 
+    groundPatches?: Array<{
+        bound: Collider;
+        color: number;
+        roughness: number;
+        offsetDist: number;
+        order?: number;
+        useAsMapShape?: boolean;
+    }> = [];
+
     goreRegion?: AABB;
 
     hasOccupiedEmitters: boolean;
@@ -78,18 +102,30 @@ export class Building extends BaseGameObject {
         pos: Vec2,
         ori: number,
         layer: number,
-        parentStructureId?: number,
+        parentId?: number,
     ) {
         super(game, pos);
         this.layer = layer;
         this.ori = ori;
         this.type = type;
 
-        const parentStructure = this.game.objectRegister.getById(parentStructureId ?? 0);
-        if (parentStructure?.__type === ObjectType.Structure) {
-            this.parentStructure = parentStructure;
+        const parent = this.game.objectRegister.getById(parentId ?? 0);
+
+        if (parent?.__type === ObjectType.Building) {
+            this.parentBuilding = parent;
+        } else if (parent?.__type === ObjectType.Structure) {
+            this.parentStructure = parent;
         }
-        const def = MapObjectDefs[this.type] as BuildingDef;
+
+        if (
+            this.parentBuilding
+            && !this.parentStructure
+            && this.parentBuilding.parentStructure
+        ) {
+            this.parentStructure = this.parentBuilding.parentStructure;
+        }
+
+        const def = MapObjectDefs.typeToDef(this.type, "building");
 
         this.rot = math.oriToRad(ori);
 
@@ -114,6 +150,21 @@ export class Building extends BaseGameObject {
                 healRate: hr.healRate,
             };
         });
+
+        this.groundPatches = def.mapGroundPatches
+            ?.map(gp => ({
+                bound: collider.transform(
+                    gp.bound,
+                    this.pos,
+                    this.rot,
+                    this.scale,
+                ),
+                color: gp.color,
+                roughness: gp.roughness ?? 0,
+                offsetDist: gp.offsetDist ?? 0,
+                order: gp.order ?? 0,
+                useAsMapShape: gp.useAsMapShape ?? true,
+            }));
 
         if (def.goreRegion) {
             this.goreRegion = collider.transform(
@@ -147,11 +198,11 @@ export class Building extends BaseGameObject {
             const region = def.ceiling.zoomRegions[i];
             const zoomIn = region.zoomIn
                 ? (collider.transform(
-                      region.zoomIn,
-                      this.pos,
-                      this.rot,
-                      this.scale,
-                  ) as AABB)
+                    region.zoomIn,
+                    this.pos,
+                    this.rot,
+                    this.scale,
+                ) as AABB)
                 : undefined;
 
             if (zoomIn) {
@@ -162,29 +213,127 @@ export class Building extends BaseGameObject {
                 zoomIn,
                 zoomOut: region.zoomOut
                     ? (collider.transform(
-                          region.zoomOut,
-                          this.pos,
-                          this.rot,
-                          this.scale,
-                      ) as AABB)
+                        region.zoomOut,
+                        this.pos,
+                        this.rot,
+                        this.scale,
+                    ) as AABB)
                     : undefined,
                 zoom: region.zoom,
                 noZoom: region.noZoom,
             });
         }
 
-        this.hasOccupiedEmitters =
-            !!def.occupiedEmitters && def.occupiedEmitters.length > 0;
+        this.hasOccupiedEmitters = !!def.occupiedEmitters && def.occupiedEmitters.length > 0;
         const emitterBounds = coldet.boundingAabb(zoomInBounds);
         this.emitterBounds = collider.createAabb(emitterBounds.min, emitterBounds.max);
 
         if (def.puzzle) {
             this.hasPuzzle = true;
+
+            this.puzzle = {
+                solved: false,
+                errSeq: 0,
+                inputCode: [],
+
+                resetTicker: 0,
+                completeTicker: 0,
+                idleResetTicker: 0,
+                interactedBy: undefined,
+            };
+        }
+    }
+
+    update(dt: number) {
+        if (this.hasPuzzle && this.puzzle) {
+            const puzzleDef = MapObjectDefs.typeToDef(this.type, "building").puzzle!;
+
+            if (this.puzzle.resetTicker > 0) {
+                this.puzzle.resetTicker -= dt;
+                if (this.puzzle.resetTicker <= 0) {
+                    this.resetPuzzle();
+                }
+            }
+
+            if (this.puzzle.solved && this.puzzle.completeTicker > 0) {
+                this.puzzle.completeTicker -= dt;
+
+                if (this.puzzle.completeTicker <= 0) {
+                    for (const obj of this.childObjects) {
+                        if (
+                            obj.__type === ObjectType.Obstacle
+                            && obj.type === puzzleDef.completeUseType
+                        ) {
+                            if (obj.isDoor) {
+                                obj.toggleDoor();
+                            } else if (obj.isButton) {
+                                obj.useButton();
+                            } else {
+                                obj.kill({
+                                    damageType: DamageType.Player,
+                                    dir: v2.create(0, 0),
+                                    source: this.puzzle.interactedBy,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (this.puzzle.idleResetTicker > 0) {
+                this.puzzle.idleResetTicker -= dt;
+                if (this.puzzle.idleResetTicker <= 0) {
+                    this.puzzle.errSeq++;
+                    this.setPartDirty();
+                    this.startReset(puzzleDef.errorResetDelay);
+                }
+            }
+        }
+
+        if (this.hasOccupiedEmitters && !this.occupiedDisabled) {
+            const oldOccupiedState = this.occupied;
+
+            this.occupied = false;
+
+            const livingPlayers = this.game.playerBarn.livingPlayers;
+            const players = livingPlayers.length < 20
+                ? livingPlayers
+                : this.game.grid.intersectCollider(this.emitterBounds);
+
+            for (let i = 0; i < players.length; i++) {
+                const player = players[i];
+                if (player.__type !== ObjectType.Player) continue;
+                if (player.dead) continue;
+                if (!util.sameLayer(player.layer, this.layer)) continue;
+                for (let j = 0; j < this.zoomRegions.length; j++) {
+                    const region = this.zoomRegions[j];
+
+                    if (!region.zoomIn) continue;
+                    if (
+                        coldet.testCircleAabb(
+                            player.pos,
+                            player.rad,
+                            region.zoomIn.min,
+                            region.zoomIn.max,
+                        )
+                    ) {
+                        this.occupied = true;
+                        break;
+                    }
+                }
+                if (this.occupied) {
+                    break;
+                }
+            }
+
+            if (this.occupied !== oldOccupiedState) {
+                this.setPartDirty();
+            }
         }
     }
 
     obstacleDestroyed(obstacle: Obstacle): void {
-        const def = MapObjectDefs[obstacle.type] as ObstacleDef;
+        const def = MapObjectDefs.typeToDef(obstacle.type, "obstacle");
 
         if (def.damageCeiling) {
             this.ceilingDamaged = true;
@@ -192,6 +341,7 @@ export class Building extends BaseGameObject {
         }
 
         if (def.disableBuildingOccupied) {
+            this.occupied = false;
             this.occupiedDisabled = true;
         }
 
@@ -226,8 +376,8 @@ export class Building extends BaseGameObject {
                     const bottomFloor = this.game.objectRegister.getById(
                         obj.layerObjIds[1],
                     ) as Building;
-                    dfs(topFloor);
-                    dfs(bottomFloor);
+                    if (topFloor) dfs(topFloor);
+                    if (bottomFloor) dfs(bottomFloor);
                     break;
             }
         };
@@ -274,8 +424,8 @@ export class Building extends BaseGameObject {
                     const bottomFloor = this.game.objectRegister.getById(
                         obj.layerObjIds[1],
                     ) as Building;
-                    dfs(topFloor);
-                    dfs(bottomFloor);
+                    if (topFloor) dfs(topFloor);
+                    if (bottomFloor) dfs(bottomFloor);
                     break;
             }
         };
@@ -283,90 +433,88 @@ export class Building extends BaseGameObject {
     }
 
     puzzlePieceToggled(piece: Obstacle): void {
-        if (this.puzzleResetTimeout) clearTimeout(this.puzzleResetTimeout);
+        assert(this.puzzle);
+        // don't accept new inputs while we are running a reset ticker
+        if (this.puzzle.resetTicker > 0) return;
 
-        this.puzzleOrder.push(piece.puzzlePiece!);
+        const puzzleDef = MapObjectDefs.typeToDef(this.type, "building").puzzle!;
 
-        const puzzleDef = (MapObjectDefs[this.type] as BuildingDef).puzzle!;
+        this.puzzle.idleResetTicker = 0;
+
+        this.puzzle.inputCode.push(piece.puzzlePiece!);
 
         let puzzleName = puzzleDef.name;
         if (this.game.map.woodsMode && puzzleName === "bunker_eye_02") {
             puzzleName = "bunker_eye_02_woods";
         }
 
-        const puzzleOrder = Puzzles[puzzleName];
+        const puzzleCode = Puzzles[puzzleName];
 
-        if (this.puzzleOrder.join("-") === puzzleOrder.join("-")) {
-            for (const obj of this.childObjects) {
-                if (
-                    obj.__type === ObjectType.Obstacle &&
-                    obj.type === puzzleDef.completeUseType
-                ) {
-                    setTimeout(() => {
-                        if (obj.isDoor) {
-                            obj.toggleDoor();
-                        } else if (obj.isButton) {
-                            obj.useButton();
-                        } else {
-                            obj.kill({
-                                damageType: DamageType.Player,
-                                dir: v2.create(0, 0),
-                                source: piece.interactedBy,
-                            });
-                        }
-                    }, puzzleDef.completeUseDelay * 1000);
-                }
-            }
-            this.puzzleSolved = true;
+        if (this.puzzle.inputCode.join("-") === puzzleCode.join("-")) {
+            this.puzzle.interactedBy = piece?.interactedBy;
+            this.puzzle.solved = true;
             if (this.parentStructure) {
-                const def = MapObjectDefs[this.parentStructure.type] as StructureDef;
+                const def = MapObjectDefs.typeToDef(this.parentStructure.type, "structure");
                 if (def.interiorSound?.puzzle === puzzleDef.name) {
                     this.parentStructure.interiorSoundAlt = true;
                     this.parentStructure.setDirty();
                 }
             }
-            setTimeout(this.resetPuzzle.bind(this), puzzleDef.completeOffDelay * 1000);
             this.setPartDirty();
-        } else if (this.puzzleOrder.length >= puzzleOrder.length) {
-            this.puzzleErrSeq++;
+
+            this.startReset(puzzleDef.completeOffDelay);
+            this.puzzle.completeTicker = puzzleDef.completeUseDelay;
+        } else if (this.puzzle.inputCode.length >= puzzleCode.length) {
+            this.puzzle.errSeq++;
             this.setPartDirty();
-            this.puzzleResetTimeout = setTimeout(
-                this.resetPuzzle.bind(this),
-                puzzleDef.errorResetDelay * 1000,
-            ) as NodeJS.Timeout;
+
+            this.startReset(puzzleDef.errorResetDelay);
         } else {
-            this.puzzleResetTimeout = setTimeout(() => {
-                this.puzzleErrSeq++;
-                this.setPartDirty();
-                setTimeout(
-                    this.resetPuzzle.bind(this),
-                    puzzleDef.errorResetDelay * 1000,
-                    this,
-                );
-            }, puzzleDef.pieceResetDelay * 1000) as NodeJS.Timeout;
+            this.puzzle.idleResetTicker = puzzleDef.pieceResetDelay;
         }
     }
 
     onGoreRegionKill() {
         for (const obj of this.childObjects) {
-            if (obj.__type === ObjectType.Decal) {
+            if (obj.__type === ObjectType.Decal && obj.hasGore) {
                 obj.goreKills++;
                 obj.setDirty();
             }
         }
     }
 
-    resetPuzzle(): void {
-        this.puzzleOrder.length = 0;
+    startReset(time: number) {
+        assert(this.puzzle);
+
+        // lock buttons until the reset is finished
         for (const piece of this.childObjects) {
             if (
-                piece.__type === ObjectType.Obstacle &&
-                piece.isButton &&
-                piece.puzzlePiece
+                piece.__type === ObjectType.Obstacle
+                && piece.isButton
+                && piece.puzzlePiece
             ) {
-                piece.button.canUse = !this.puzzleSolved;
-                piece.button.onOff = false;
-                piece.button.seq++;
+                piece.button!.canUse = false;
+                piece.setDirty();
+            }
+        }
+        this.puzzle.resetTicker = time;
+    }
+
+    resetPuzzle(): void {
+        assert(this.puzzle);
+        this.puzzle.inputCode.length = 0;
+        this.puzzle.idleResetTicker = 0;
+        this.puzzle.resetTicker = 0;
+
+        for (const piece of this.childObjects) {
+            if (
+                piece.__type === ObjectType.Obstacle
+                && piece.isButton
+                && piece.puzzlePiece
+            ) {
+                piece.button!.canUse = !this.puzzle.solved;
+                piece.button!.onOff = false;
+                piece.button!.seq++;
                 piece.setDirty();
             }
         }

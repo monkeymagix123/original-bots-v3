@@ -1,11 +1,12 @@
 import * as PIXI from "pixi.js-legacy";
-import { GameObjectDefs } from "../../../shared/defs/gameObjectDefs";
-import type { RoleDef } from "../../../shared/defs/gameObjects/roleDefs";
-import type { MapIndicator } from "../../../shared/net/updateMsg";
-import { math } from "../../../shared/utils/math";
-import { type Vec2, v2 } from "../../../shared/utils/v2";
-import { device } from "../device";
-import type { MapSprite, MapSpriteBarn } from "./mapSprite";
+
+import { GameObjectDefs } from "../../../shared/defs/register.ts";
+import type { MapIndicator } from "../../../shared/net/updateMsg.ts";
+import { math } from "../../../shared/utils/math.ts";
+import { assert } from "../../../shared/utils/util.ts";
+import { v2, type Vec2 } from "../../../shared/utils/v2.ts";
+import { device } from "../device.ts";
+import type { MapSprite, MapSpriteBarn } from "./mapSprite.ts";
 
 interface Indicator {
     id: number;
@@ -79,7 +80,8 @@ export class MapIndicatorBarn {
         indicator.pos = v2.copy(data.pos);
         indicator.equipped = data.equipped;
 
-        const objDef = GameObjectDefs[indicator.type] as RoleDef;
+        const objDef = GameObjectDefs.typeToDef(indicator.type);
+        assert("mapIndicator" in objDef && objDef.mapIndicator, `Type ${indicator.type} has mapIndicator on the def`);
         const scale = (device.uiLayout == device.UiLayout.Sm ? 0.15 : 0.2) * 1.25;
         const zOrder = indicator.equipped ? 655350 : 1;
 
@@ -89,10 +91,10 @@ export class MapIndicatorBarn {
         mapSprite.alpha = 1;
         mapSprite.zOrder = zOrder;
         mapSprite.visible = true;
-        mapSprite.sprite.texture = PIXI.Texture.from(objDef.mapIndicator?.sprite!);
+        mapSprite.sprite.texture = PIXI.Texture.from(objDef.mapIndicator.sprite);
 
-        mapSprite.sprite.tint = objDef.mapIndicator?.tint ?? 0xffffff;
-        if (objDef.mapIndicator?.pulse) {
+        mapSprite.sprite.tint = objDef.mapIndicator.tint ?? 0xffffff;
+        if (objDef.mapIndicator.pulse) {
             const pulseSprite = indicator.pulseSprite;
             pulseSprite.pos = v2.copy(indicator.pos);
             pulseSprite.scale = 1;
@@ -115,8 +117,8 @@ export class MapIndicatorBarn {
             // Ease up and down
             indicator.pulseScale = indicator.pulseTicker * indicator.pulseScaleMax;
             if (
-                indicator.pulseScale >= indicator.pulseScaleMax ||
-                indicator.pulseTicker <= indicator.pulseScaleMin
+                indicator.pulseScale >= indicator.pulseScaleMax
+                || indicator.pulseTicker <= indicator.pulseScaleMin
             ) {
                 indicator.pulseDir *= -1;
             }

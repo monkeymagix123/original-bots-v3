@@ -1,15 +1,15 @@
 import * as PIXI from "pixi.js-legacy";
-import type { ObjectData, ObjectType } from "../../../shared/net/objectSerializeFns";
-import { collider } from "../../../shared/utils/collider";
-import { math } from "../../../shared/utils/math";
-import { util } from "../../../shared/utils/util";
-import { type Vec2, v2 } from "../../../shared/utils/v2";
-import type { Camera } from "../camera";
-import type { Ctx } from "../game";
-import type { Map } from "../map";
-import type { Renderer } from "../renderer";
-import { Pool } from "./objectPool";
-import type { AbstractObject, Player } from "./player";
+import type { ObjectData, ObjectType } from "../../../shared/net/objectSerializeFns.ts";
+import { collider } from "../../../shared/utils/collider.ts";
+import { math } from "../../../shared/utils/math.ts";
+import { util } from "../../../shared/utils/util.ts";
+import { v2, type Vec2 } from "../../../shared/utils/v2.ts";
+import type { Camera } from "../camera.ts";
+import type { Ctx } from "../game.ts";
+import type { Map } from "../map.ts";
+import type { Renderer } from "../renderer.ts";
+import { AbstractObject, Pool } from "./objectPool.ts";
+import type { Player } from "./player.ts";
 
 class Smoke implements AbstractObject {
     __id!: number;
@@ -60,7 +60,7 @@ const particles = ["part-smoke-02.img", "part-smoke-03.img"];
 export class SmokeParticle {
     active = false;
     zIdx = 0;
-    sprite = PIXI.Sprite.from(particles[Math.floor(Math.random() * particles.length)]);
+    sprite = PIXI.Sprite.from(util.randomItem(particles));
 
     pos!: Vec2;
     posTarget!: Vec2;
@@ -77,7 +77,7 @@ export class SmokeParticle {
     interior!: number;
 
     constructor() {
-        this.sprite.anchor = new PIXI.Point(0.5, 0.5) as PIXI.ObservablePoint;
+        this.sprite.anchor.set(0.5, 0.5);
         this.sprite.visible = false;
     }
 
@@ -129,17 +129,12 @@ export class SmokeBarn {
         map: Map,
         renderer: Renderer,
     ) {
-        // why is this commented out?
-        // for (let o = this.e.getPool(), s = 0; s < o.length; s++) {
-        // o[s].active;
-        // }
-
         // Update visual particles
         for (let m = 0; m < this.m_particles.length; m++) {
             const p = this.m_particles[m];
             if (p.active) {
                 p.rad = math.lerp(dt * 3, p.rad, p.radTarget);
-                p.pos = math.v2lerp(dt * 3, p.pos, p.posTarget);
+                p.pos = v2.lerp(dt * 3, p.pos, p.posTarget);
                 p.rotVel *= 1 / (1 + dt * 0.1);
                 p.rot += p.rotVel * dt;
                 p.fadeTicker += p.fade ? dt : 0;
@@ -152,11 +147,11 @@ export class SmokeBarn {
                 // level but occluded by the cellar when on the stairs).
                 let layer = p.layer;
                 if (
-                    (!!util.sameLayer(p.layer, activePlayer.layer) ||
-                        !!(activePlayer.layer & 2)) &&
-                    (p.layer == 1 ||
-                        !(activePlayer.layer & 2) ||
-                        !map.insideStructureMask(collider.createCircle(p.pos, 1)))
+                    (!!util.sameLayer(p.layer, activePlayer.layer)
+                        || !!(activePlayer.layer & 2))
+                    && (p.layer == 1
+                        || !(activePlayer.layer & 2)
+                        || !map.insideStructureMask(collider.createCircle(p.pos, 1)))
                 ) {
                     layer |= 2;
                 }

@@ -1,5 +1,5 @@
-import type { Vec2 } from "../../../../shared/utils/v2";
-import type { BotState } from "./botDecision";
+import type { Vec2 } from "../../../../shared/utils/v2.ts";
+import type { BotState } from "./botDecision.ts";
 
 export interface BotTelemetrySnapshot {
     state: BotState;

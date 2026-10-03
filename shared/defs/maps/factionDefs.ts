@@ -1,24 +1,17 @@
-import { GameConfig } from "../../gameConfig";
-import { util } from "../../utils/util";
-import { v2 } from "../../utils/v2";
-import type { MapDef } from "../mapDefs";
-import { MapId } from "../types/misc";
-import { Main, type PartialMapDef } from "./baseDefs";
-
-export enum TeamColor {
-    // NONE = 0, // can be used ambiguously with code that runs the same regardless of team color
-    Red = 1,
-    Blue = 2,
-}
+import { GameConfig } from "../../gameConfig.ts";
+import { util } from "../../utils/util.ts";
+import { v2 } from "../../utils/v2.ts";
+import type { MapDef } from "../mapDefs.ts";
+import { Main, type PartialMapDef } from "./baseDefs.ts";
 
 const mapDef: PartialMapDef = {
-    mapId: MapId.Faction,
+    mapId: GameConfig.MapId.Faction,
     desc: {
         name: "50v50",
         icon: "img/gui/star.svg",
         buttonCss: "btn-mode-faction",
         buttonText: "50v50",
-        backgroundImg: "img/main_splash_0_7_0.png",
+        backgroundImg: "img/splashes/faction.webp",
     },
     assets: {
         audio: [
@@ -82,8 +75,11 @@ const mapDef: PartialMapDef = {
                 name: "bugle_03",
                 channel: "otherPlayers",
             },
+            { name: "log_05", channel: "sfx" },
+            { name: "vault_change_03", channel: "sfx" },
+            { name: "watering_01", channel: "sfx" },
         ],
-        atlases: ["gradient", "loadout", "shared", "faction"],
+        atlases: ["loadout", "shared", "faction"],
     },
     biome: {
         colors: {
@@ -353,6 +349,8 @@ const mapDef: PartialMapDef = {
             { name: "ots38_dual", count: 1, weight: 2 },
             { name: "spas16", count: 1, weight: 2 },
             { name: "sv98", count: 1, weight: 2 },
+            { name: "barrett", count: 1, weight: 0.5 },
+            { name: "ash12", count: 1, weight: 0.5 },
             { name: "p30l_dual", count: 1, weight: 0.3 },
             { name: "deagle_dual", count: 1, weight: 0.3 },
             { name: "pkp", count: 1, weight: 0.1 },

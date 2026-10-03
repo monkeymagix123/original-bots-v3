@@ -1,21 +1,20 @@
-import type { MapDef } from "../../../shared/defs/mapDefs";
-import { coldet } from "../../../shared/utils/coldet";
-import { collider } from "../../../shared/utils/collider";
-import { math } from "../../../shared/utils/math";
-import { catmullRom, getControlPoints } from "../../../shared/utils/spline";
-import { util } from "../../../shared/utils/util";
-import { type Vec2, v2 } from "../../../shared/utils/v2";
-import type { GameMap } from "./map";
+import type { MapDef } from "../../../shared/defs/mapDefs.ts";
+import { coldet } from "../../../shared/utils/coldet.ts";
+import { collider } from "../../../shared/utils/collider.ts";
+import { math } from "../../../shared/utils/math.ts";
+import { catmullRom, getControlPoints } from "../../../shared/utils/spline.ts";
+import { util } from "../../../shared/utils/util.ts";
+import { v2, type Vec2 } from "../../../shared/utils/v2.ts";
+import type { GameMap } from "./map.ts";
 
 export class RiverCreator {
     randomGenerator: (min?: number, max?: number) => number;
 
     constructor(
         public map: GameMap,
-        randomGenerator?: (min?: number, max?: number) => number,
+        randomGenerator: (min?: number, max?: number) => number,
     ) {
-        this.randomGenerator =
-            randomGenerator ?? ((min = 0, max = 1) => Math.random() * (max - min) + min);
+        this.randomGenerator = randomGenerator;
     }
 
     private getStartPoint(isFactionRiver: boolean): Vec2 {
@@ -60,10 +59,11 @@ export class RiverCreator {
             if (v2.manhattanDistance(start, end) <= gridSize) continue;
             // if a river starts on corner, it can't end on a corner
             if (
-                isStartNearCorner &&
-                corners.some((c) => v2.manhattanDistance(c, end) < tileSize)
-            )
+                isStartNearCorner
+                && corners.some((c) => v2.manhattanDistance(c, end) < tileSize)
+            ) {
                 continue;
+            }
             return end;
         }
 
@@ -109,7 +109,7 @@ export class RiverCreator {
         }
     }
 
-    create(isFactionRiver: boolean): Vec2[] {
+    create(riverWidth: number, isFactionRiver: boolean): Vec2[] {
         const start = this.getStartPoint(isFactionRiver);
         const end = this.getEndPoint(start, isFactionRiver);
 
@@ -169,16 +169,6 @@ export class RiverCreator {
             }
         }
 
-        for (let i = 0; i < this.map.riverMasks.length; i++) {
-            const mask = this.map.riverMasks[i];
-            for (let j = 0; j < riverPoints.length; j++) {
-                const point = riverPoints[j];
-                if (coldet.testCircleCircle(point, 0.01, mask.pos, mask.rad)) {
-                    return [];
-                }
-            }
-        }
-
         this.handleIntersection(riverPoints);
 
         if (riverPoints.length < 10) {
@@ -200,6 +190,18 @@ export class RiverCreator {
             );
             this.map.clampToMapBounds(smoothPoints[i]);
         }
+
+        // check for collision with river masks
+        for (let i = 0; i < this.map.riverMasks.length; i++) {
+            const mask = this.map.riverMasks[i];
+            for (let j = 0; j < smoothPoints.length; j++) {
+                const circle = collider.createCircle(smoothPoints[j], riverWidth * 2);
+                if (coldet.test(circle, mask)) {
+                    return [];
+                }
+            }
+        }
+
         return smoothPoints;
     }
 
@@ -225,6 +227,17 @@ export class RiverCreator {
             points[i] = newNode;
         }
         points.push(v2.copy(points[0]));
+
+        // check for collision with river masks
+        for (let i = 0; i < this.map.riverMasks.length; i++) {
+            const mask = this.map.riverMasks[i];
+            for (let j = 0; j < points.length; j++) {
+                const circle = collider.createCircle(points[j], width * 2);
+                if (coldet.test(circle, mask)) {
+                    return undefined;
+                }
+            }
+        }
 
         // smooth out the lake using the spline logic
         const smoothPoints = new Array(33);
@@ -256,6 +269,7 @@ export class RiverCreator {
             looped: true,
             center,
             aabb: collider.createAabb(aabbMin, aabbMax),
+            noRiverObjs: !!lake.noRiverObjs,
         };
     }
 }

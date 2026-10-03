@@ -1,20 +1,17 @@
 import { describe, expect, test } from "vitest";
-import { BotAgent } from "../../server/src/game/bots/botAgent";
-import { BotAimController } from "../../server/src/game/bots/botAim";
-import { BotDecisionMaker } from "../../server/src/game/bots/botDecision";
-import { getBotSkillProfile } from "../../server/src/game/bots/botDifficulty";
-import { BotMovementController } from "../../server/src/game/bots/botMovement";
-import {
-    BotPerception,
-    type BotPerceptionSnapshot,
-} from "../../server/src/game/bots/botPerception";
-import { createBotProfile } from "../../server/src/game/bots/botProfile";
-import { BotRandom } from "../../server/src/game/bots/botRandom";
-import { GameConfig, TeamMode } from "../../shared/gameConfig";
-import { MsgType, UpdateMsg } from "../../shared/net/net";
-import { ObjectType } from "../../shared/net/objectSerializeFns";
-import { v2 } from "../../shared/utils/v2";
-import { createGame } from "./gameTestHelpers";
+import { BotAgent } from "../../server/src/game/bots/botAgent.ts";
+import { BotAimController } from "../../server/src/game/bots/botAim.ts";
+import { BotDecisionMaker } from "../../server/src/game/bots/botDecision.ts";
+import { getBotSkillProfile } from "../../server/src/game/bots/botDifficulty.ts";
+import { BotMovementController } from "../../server/src/game/bots/botMovement.ts";
+import { BotPerception, type BotPerceptionSnapshot } from "../../server/src/game/bots/botPerception.ts";
+import { createBotProfile } from "../../server/src/game/bots/botProfile.ts";
+import { BotRandom } from "../../server/src/game/bots/botRandom.ts";
+import { GameConfig, TeamMode } from "../../shared/gameConfig.ts";
+import { MsgType, UpdateMsg } from "../../shared/net/net.ts";
+import { ObjectType } from "../../shared/net/objectSerializeFns.ts";
+import { v2 } from "../../shared/utils/v2.ts";
+import { createGame } from "./gameTestHelpers.ts";
 
 describe("training bot profiles", () => {
     test("skill presets improve more than aim while preserving human reaction time", () => {
@@ -75,7 +72,7 @@ describe("starting perks", () => {
                 { type: "not_a_perk", droppable: false },
             ];
             expect(() => game.playerBarn.addTestPlayer({ isAi: true })).toThrow(
-                /Invalid item type/,
+                /not a valid Game definition/,
             );
             GameConfig.player.botStartingPerks = [
                 { type: "full_adrenaline", droppable: false },
@@ -243,8 +240,7 @@ describe("human-like aim", () => {
         const target = v2.create(20, 0);
         const up = v2.create(0, 12);
         const down = v2.create(0, -12);
-        const update = (velocity: typeof up) =>
-            aim.update(0.05, shooter, target, velocity, 7, 35, false, false);
+        const update = (velocity: typeof up) => aim.update(0.05, shooter, target, velocity, 7, 35, false, false);
         for (let tick = 0; tick < 100; tick++) update(up);
 
         expect(update(down).reactionRemaining).toBeCloseTo(0.15);
@@ -366,8 +362,8 @@ describe("bot decisions", () => {
                     ],
                 };
                 if (
-                    decisions.update(2, player as never, snapshot, 12).state ===
-                    "taking-cover"
+                    decisions.update(2, player as never, snapshot, 12).state
+                        === "taking-cover"
                 ) {
                     coverChoices++;
                 }
@@ -600,12 +596,14 @@ describe("bot decisions", () => {
         expect(decisions.update(0.1, player as never, threat, 12).state).toBe("engaging");
     });
 
-    test.each([
-        "beginner",
-        "casual",
-        "skilled",
-        "expert",
-    ] as const)("%s search goals persist during seeded travel", (difficulty) => {
+    test.each(
+        [
+            "beginner",
+            "casual",
+            "skilled",
+            "expert",
+        ] as const,
+    )("%s search goals persist during seeded travel", (difficulty) => {
         let goalChanges = 0;
         let sharpTurns = 0;
         for (let seed = 1; seed <= 100; seed++) {
@@ -686,12 +684,14 @@ describe("bot decisions", () => {
         expect(recovered.destination).not.toEqual(firstGoal);
     });
 
-    test.each([
-        "beginner",
-        "casual",
-        "skilled",
-        "expert",
-    ] as const)("%s waits for recognition before changing movement on first sight", (difficulty) => {
+    test.each(
+        [
+            "beginner",
+            "casual",
+            "skilled",
+            "expert",
+        ] as const,
+    )("%s waits for recognition before changing movement on first sight", (difficulty) => {
         const { profile, personality } = createBotProfile(
             difficulty,
             new BotRandom(31),
@@ -779,12 +779,14 @@ describe("bot decisions", () => {
         expect(decision.destination).toEqual(danger.zoneCenter);
     });
 
-    test.each([
-        ["beginner", 1.2, 2.1],
-        ["casual", 0.7, 1.3],
-        ["skilled", 0.3, 0.7],
-        ["expert", 0.05, 0.3],
-    ] as const)("%s recognizes zone pressure once, then keeps rotating", (difficulty, earliestMean, latestMean) => {
+    test.each(
+        [
+            ["beginner", 1.2, 2.1],
+            ["casual", 0.7, 1.3],
+            ["skilled", 0.3, 0.7],
+            ["expert", 0.05, 0.3],
+        ] as const,
+    )("%s recognizes zone pressure once, then keeps rotating", (difficulty, earliestMean, latestMean) => {
         const danger = {
             ...emptySnapshot(),
             outsideZone: true,
@@ -956,12 +958,14 @@ describe("bot decisions", () => {
         expect(result.useItem).toBe("healthkit");
     });
 
-    test.each([
-        "beginner",
-        "casual",
-        "skilled",
-        "expert",
-    ] as const)("%s does not heal while a targetable enemy remains visible", (difficulty) => {
+    test.each(
+        [
+            "beginner",
+            "casual",
+            "skilled",
+            "expert",
+        ] as const,
+    )("%s does not heal while a targetable enemy remains visible", (difficulty) => {
         for (let seed = 1; seed <= 30; seed++) {
             const { profile, personality } = createBotProfile(
                 difficulty,
@@ -1322,11 +1326,13 @@ describe("bot decisions", () => {
     });
 
     test("reloads an empty gun with reserve ammo or an infinite-ammo rule", () => {
-        for (const scenario of [
-            { weapon: "mp5", reserve: 30, endless: false },
-            { weapon: "mp5", reserve: 0, endless: true },
-            { weapon: "m9_cursed", reserve: 0, endless: false },
-        ]) {
+        for (
+            const scenario of [
+                { weapon: "mp5", reserve: 30, endless: false },
+                { weapon: "mp5", reserve: 0, endless: true },
+                { weapon: "m9_cursed", reserve: 0, endless: false },
+            ]
+        ) {
             const { profile, personality } = createBotProfile(
                 "casual",
                 new BotRandom(73),
@@ -1418,15 +1424,17 @@ describe("bot decisions", () => {
             age: 0,
             distance: 12,
         };
-        for (const scenario of [
-            { reserve: 0, visibleEnemies: [], rememberedEnemies: [] },
-            { reserve: 90, visibleEnemies: [threat], rememberedEnemies: [] },
-            {
-                reserve: 90,
-                visibleEnemies: [],
-                rememberedEnemies: [{ ...threat, visible: false, age: 0.5 }],
-            },
-        ]) {
+        for (
+            const scenario of [
+                { reserve: 0, visibleEnemies: [], rememberedEnemies: [] },
+                { reserve: 90, visibleEnemies: [threat], rememberedEnemies: [] },
+                {
+                    reserve: 90,
+                    visibleEnemies: [],
+                    rememberedEnemies: [{ ...threat, visible: false, age: 0.5 }],
+                },
+            ]
+        ) {
             const { profile, personality } = createBotProfile(
                 "expert",
                 new BotRandom(91),
@@ -1632,10 +1640,9 @@ describe("bot firing reach", () => {
             disconnected: false,
             health: 100,
             activeWeapon: weapon,
-            curWeapIdx:
-                weapon === "fists"
-                    ? GameConfig.WeaponSlot.Melee
-                    : GameConfig.WeaponSlot.Primary,
+            curWeapIdx: weapon === "fists"
+                ? GameConfig.WeaponSlot.Melee
+                : GameConfig.WeaponSlot.Primary,
             weapons: [
                 { type: weapon === "fists" ? "" : weapon, ammo: 5 },
                 { type: "", ammo: 0 },
@@ -1788,9 +1795,10 @@ describe("server integration", () => {
         const game = await createGame(TeamMode.Solo, "main");
         const spectator = game.playerBarn.addTestPlayer({ name: "spectator" });
         const bot = game.botManager.spawnBot({ difficulty: "casual", seed: 56 });
-        spectator.spectating = bot;
+        spectator.dead = true;
+        spectator.client.spectating = bot;
         const playerInfoCounts: number[] = [];
-        const stream = spectator.msgStream;
+        const stream = spectator.client.msgStream;
         // This test observes UpdateMsg selection, so skip unrelated map-byte copying.
         stream.stream.writeBytes = () => {};
         const serialize = stream.serializeMsg.bind(stream);
@@ -1801,11 +1809,11 @@ describe("server integration", () => {
             return serialize(type, msg);
         };
 
-        spectator.sendMsgs();
+        spectator.client.sendMsgs();
         game.playerBarn.flush();
-        spectator.sendMsgs();
+        spectator.client.sendMsgs();
         const newcomer = game.playerBarn.addTestPlayer({ name: "newcomer" });
-        spectator.sendMsgs();
+        spectator.client.sendMsgs();
 
         expect(playerInfoCounts).toEqual([2, 0, 1]);
         expect(newcomer.hasClient).toBe(true);

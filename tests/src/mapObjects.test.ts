@@ -1,20 +1,18 @@
-import "./testHelpers";
+import "./testHelpers.ts";
 import { describe, expect, test } from "vitest";
 
-import { MapObjectDefs } from "../../shared/defs/mapObjectDefs";
-import type {
-    BuildingDef,
-    LootSpawnerDef,
-    ObstacleDef,
-    StructureDef,
-} from "../../shared/defs/mapObjectsTyping";
-import { Constants } from "../../shared/net/net";
+import type { BuildingDef } from "../../shared/defs/mapObjects/buildings/buildingDefs.ts";
+import type { ObstacleDef } from "../../shared/defs/mapObjects/obstacles/obstacleDefs.ts";
+import type { StructureDef } from "../../shared/defs/mapObjects/structureDefs.ts";
+import type { LootSpawnerDef } from "../../shared/defs/mapObjectsTyping.ts";
+import { MapObjectDefs } from "../../shared/defs/register.ts";
+import { Constants } from "../../shared/net/net.ts";
 
-const mapObjects = Object.entries(MapObjectDefs);
+const mapObjects = MapObjectDefs.getAllTypes();
 
-const obstacles = mapObjects.filter(([, def]) => {
-    return def.type === "obstacle";
-}) as [string, ObstacleDef][];
+const obstacles = mapObjects.filter((type) => {
+    return MapObjectDefs.typeToDef(type).type === "obstacle";
+}).map(t => [t, MapObjectDefs.typeToDef(t)]) as [string, ObstacleDef][];
 
 describe.for(obstacles)("Obstacle %s", ([, def]) => {
     test("Scale", () => {
@@ -52,9 +50,9 @@ describe.for(obstacles)("Obstacle %s", ([, def]) => {
     }
 });
 
-const buildings = mapObjects.filter(([, def]) => {
-    return def.type === "building";
-}) as [string, BuildingDef][];
+const buildings = mapObjects.filter((type) => {
+    return MapObjectDefs.typeToDef(type).type === "building";
+}).map(t => [t, MapObjectDefs.typeToDef(t)]) as [string, BuildingDef][];
 
 describe.for(buildings)("Building %s", ([, def]) => {
     if (def.mapObjects.length > 0) {
@@ -80,19 +78,19 @@ describe.for(buildings)("Building %s", ([, def]) => {
     }
 });
 
-const structures = mapObjects.filter(([, def]) => {
-    return def.type === "structure";
-}) as [string, StructureDef][];
+const structures = mapObjects.filter((type) => {
+    return MapObjectDefs.typeToDef(type).type === "structure";
+}).map(t => [t, MapObjectDefs.typeToDef(t)]) as [string, StructureDef][];
 
 describe.for(structures)("Structure %s", ([, def]) => {
     test.for(def.layers)("Layer %$", (layer) => {
-        expect(layer.type).toBeValidMapObj("building");
+        expect(layer.type).toBeValidMapObj(["building"]);
     });
 });
 
-const lootSpawners = mapObjects.filter(([, def]) => {
-    return def.type === "loot_spawner";
-}) as [string, LootSpawnerDef][];
+const lootSpawners = mapObjects.filter((type) => {
+    return MapObjectDefs.typeToDef(type).type === "loot_spawner";
+}).map(t => [t, MapObjectDefs.typeToDef(t)]) as [string, LootSpawnerDef][];
 
 describe.for(lootSpawners)("Loot Spawner %s", ([, def]) => {
     test.for(def.loot)("Loot %$", (loot) => {

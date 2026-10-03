@@ -1,8 +1,7 @@
-import type { AtlasDef } from "../atlasDefs";
-import { BuildingSprites } from "./buildings";
+import type { AtlasDef } from "../atlasDefs.ts";
+import { BuildingSprites } from "./buildings.ts";
 
 export const FactionAtlas: AtlasDef = {
-    compress: true,
     images: [
         "map/map-airdrop-03.svg",
         "map/map-airdrop-04.svg",
@@ -28,7 +27,6 @@ export const FactionAtlas: AtlasDef = {
         "map/map-statue-top-02.svg",
 
         "map/map-bush-01f.svg",
-        "map/map-tree-13.svg",
         "map/map-tree-08f.svg",
 
         "map/map-stone-03f.svg",

@@ -1,13 +1,12 @@
-import { TeamColor } from "../../../shared/defs/maps/factionDefs";
-import { GameConfig, TeamMode } from "../../../shared/gameConfig";
-import { ObjectType } from "../../../shared/net/objectSerializeFns";
-import { collider } from "../../../shared/utils/collider";
-import { util } from "../../../shared/utils/util";
-import { v2 } from "../../../shared/utils/v2";
-import { Config } from "../config";
-import type { Game } from "./game";
-import type { DamageParams } from "./objects/gameObject";
-import type { Player } from "./objects/player";
+import { GameConfig, TeamMode } from "../../../shared/gameConfig.ts";
+import { ObjectType } from "../../../shared/net/objectSerializeFns.ts";
+import { collider } from "../../../shared/utils/collider.ts";
+import { util } from "../../../shared/utils/util.ts";
+import { v2 } from "../../../shared/utils/v2.ts";
+import { Config } from "../config.ts";
+import type { Game } from "./game.ts";
+import type { DamageParams } from "./objects/gameObject.ts";
+import type { Player } from "./objects/player.ts";
 
 enum GameMode {
     /** default solos, any map besides factions */
@@ -64,12 +63,6 @@ export class GameModeManager {
         }
     }
 
-    private _countAliveHumans(): number {
-        return this.game.playerBarn.livingPlayers.filter(
-            (p) => !p.isAi && !p.bot && !p.disconnected,
-        ).length;
-    }
-
     // used when saving the game match data
     getPlayersSortedByRank(): Array<{ player: Player; rank: number }> {
         const players = [...this.game.playerBarn.players];
@@ -98,10 +91,9 @@ export class GameModeManager {
                 // by basing it on the last player to die killed index
                 const groups = this.game.playerBarn[key].map((group) => {
                     return {
-                        killedIndex:
-                            group.players.sort((a, b) => {
-                                return b.killedIndex - a.killedIndex;
-                            })[0].killedIndex ?? Infinity,
+                        killedIndex: group.players.sort((a, b) => {
+                            return b.killedIndex - a.killedIndex;
+                        })[0].killedIndex ?? Infinity,
                         players: group.players,
                     };
                 });
@@ -124,62 +116,30 @@ export class GameModeManager {
         }
     }
 
-    /** true if game needs to end */
-    handleGameEnd(): boolean {
-        if (this.game.map.mapDef.isWave) {
-            if (!this.game.started) return false;
+    private _countAliveHumans(): number {
+        return this.game.playerBarn.livingPlayers.filter(p => !p.isAi && !p.bot && !p.disconnected).length;
+    }
 
-            if (this.game.botManager.wavesComplete) {
-                for (const player of this.game.playerBarn.players) {
-                    if (player.hasClient && !player.disconnected && !player.bot) {
-                        player.addGameOverMsg(TeamColor.Red);
-                    }
-                }
-
-                this.game.playerBarn.killedPlayers.length = 0;
-                return true;
-            }
-
-            if (this._countAliveHumans() > 0) return false;
-
-            for (const player of this.game.playerBarn.players) {
-                if (player.hasClient && !player.disconnected && !player.bot) {
-                    player.addGameOverMsg(TeamColor.Blue);
-                }
-            }
-
-            this.game.playerBarn.killedPlayers.length = 0;
-            return true;
-        }
-
-        if (!this.game.started || this.aliveCount() > 1) return false;
+    getWinningTeamId() {
+        if (this.game.map.mapDef.isWave) return this.game.botManager.wavesComplete ? 1 : 2;
         switch (this.mode) {
             case GameMode.Solo: {
                 const winner = this.game.playerBarn.livingPlayers[0];
-                winner.addGameOverMsg(winner.teamId);
-                return true;
+                return winner.teamId;
             }
             case GameMode.Team: {
                 const winner = this.game.playerBarn.getAliveGroups()[0];
-                for (const player of winner.getAlivePlayers()) {
-                    player.addGameOverMsg(winner.id);
-                }
-                return true;
+                return winner.id;
             }
             case GameMode.Faction: {
                 const winner = this.game.playerBarn.getAliveTeams()[0];
-                for (const player of winner.livingPlayers) {
-                    player.addGameOverMsg(winner.id);
-                }
-                return true;
+                return winner.id;
             }
         }
     }
 
     isGameStarted(): boolean {
-        if (this.game.map.mapDef.isWave) {
-            return this._countAliveHumans() > 0;
-        }
+        if (this.game.map.mapDef.isWave) return this._countAliveHumans() > 0;
         return this.cantDespawnAliveCount() > 1;
     }
 
@@ -217,10 +177,7 @@ export class GameModeManager {
     }
 
     getPlayerStatusPlayers(player: Player): Player[] {
-        if (Config.bots.debugMapIndicators) {
-            return this.game.playerBarn.players;
-        }
-
+        if (Config.bots.debugMapIndicators) return this.game.playerBarn.players;
         switch (this.mode) {
             case GameMode.Solo:
                 return [];
@@ -250,8 +207,8 @@ export class GameModeManager {
         if (alivePlayersContext.length <= 4) {
             return alivePlayersContext.filter(
                 (p) =>
-                    !!util.sameLayer(player.layer, p.layer) &&
-                    v2.lengthSqr(v2.sub(player.pos, p.pos)) <= range * range,
+                    !!util.sameLayer(player.layer, p.layer)
+                    && v2.lengthSqr(v2.sub(player.pos, p.pos)) <= range * range,
             );
         }
 
@@ -259,19 +216,16 @@ export class GameModeManager {
             .intersectCollider(collider.createCircle(player.pos, range))
             .filter(
                 (obj): obj is Player =>
-                    obj.__type == ObjectType.Player &&
-                    player.teamId === obj.teamId &&
-                    !obj.dead && // necessary since player isnt deleted from grid on death
-                    !!util.sameLayer(player.layer, obj.layer) &&
-                    v2.lengthSqr(v2.sub(player.pos, obj.pos)) <= range * range,
+                    obj.__type == ObjectType.Player
+                    && player.teamId === obj.teamId
+                    && !obj.dead // necessary since player isnt deleted from grid on death
+                    && !!util.sameLayer(player.layer, obj.layer)
+                    && v2.lengthSqr(v2.sub(player.pos, obj.pos)) <= range * range,
             );
     }
 
     showStatsMsg(player: Player): boolean {
-        if (this.game.map.mapDef.isWave) {
-            return this._countAliveHumans() > 0;
-        }
-
+        if (this.game.map.mapDef.isWave) return this._countAliveHumans() > 0;
         switch (this.mode) {
             case GameMode.Solo:
                 return false;
@@ -288,61 +242,45 @@ export class GameModeManager {
                 return [player];
             case GameMode.Team:
                 return player.group!.players;
-            case GameMode.Faction:
-                const redLeader = this.game.playerBarn.teams[TeamColor.Red - 1].leader;
-                const blueLeader = this.game.playerBarn.teams[TeamColor.Blue - 1].leader;
-                const highestKiller = this.game.playerBarn.players.reduce(
-                    (highestKiller, p) => {
-                        if (highestKiller.kills === p.kills) {
-                            return highestKiller.damageDealt > p.damageDealt
-                                ? highestKiller
-                                : p;
-                        }
+            case GameMode.Faction: {
+                const redLeader = this.game.playerBarn.teams[GameConfig.FactionTeam.Red - 1].leader;
+                const blueLeader = this.game.playerBarn.teams[GameConfig.FactionTeam.Blue - 1].leader;
 
-                        return highestKiller.kills > p.kills ? highestKiller : p;
-                    },
-                );
+                if (!redLeader || !blueLeader) {
+                    return [player];
+                }
 
-                // if game ends before leaders are promoted, just show the player by himself
-                return !redLeader || !blueLeader
-                    ? [player]
-                    : [player, redLeader, blueLeader, highestKiller];
+                if (this.game.playerBarn.factionsMvp === undefined) {
+                    return [player, redLeader, blueLeader];
+                }
+
+                return [player, redLeader, blueLeader, this.game.playerBarn.factionsMvp];
+            }
         }
     }
 
-    /**
-     * gives all the players spectating the player who died a new player to spectate
-     * @param player player who died
-     */
-    assignNewSpectate(player: Player): void {
-        // This method doesn't use a mode switchcase like all the other methods in this class,
-        // as the spectate logic is identitical with the sole exception of narrowing random players
-        // in 50v50: random players spectated in 50v50 should be on the same team as the spectator.
+    getFactionMvp(): Player | undefined {
+        if (this.mode !== GameMode.Faction) return;
+        const redLeader = this.game.playerBarn.teams[GameConfig.FactionTeam.Red - 1].leader;
+        const blueLeader = this.game.playerBarn.teams[GameConfig.FactionTeam.Blue - 1].leader;
 
-        // If there are no spectators, we have no need to run any logic.
-        if (player.spectatorCount === 0) return;
-
-        // Priority list of spectate targets.
-        const spectateTargets = [
-            player.group?.randomPlayer(), // undefined if no player to choose
-            player.team?.randomPlayer(), // undefined if no player to choose
-            player.getAliveKiller(),
-            player.game.playerBarn.randomPlayer(),
-        ];
-
-        const playerToSpec = spectateTargets.filter((x) => x !== undefined).shift();
-        for (const spectator of player.spectators) {
-            // If all group members have died, they need to be sent a game over message instead.
-            if (
-                player.group &&
-                player.group.allDeadOrDisconnected &&
-                player.group.players.includes(spectator)
-            )
-                continue;
-
-            // Set remaining spectators to new player.
-            spectator.spectating = playerToSpec;
+        if (!redLeader || !blueLeader) {
+            return;
         }
+
+        const highestKiller = this.game.playerBarn.players.reduce(
+            (highestKiller, p) => {
+                if (highestKiller.kills === p.kills) {
+                    return highestKiller.damageDealt > p.damageDealt
+                        ? highestKiller
+                        : p;
+                }
+
+                return highestKiller.kills > p.kills ? highestKiller : p;
+            },
+        );
+
+        return highestKiller;
     }
 
     handlePlayerDeath(player: Player, params: DamageParams): void {
@@ -351,25 +289,21 @@ export class GameModeManager {
         } else {
             const group = this.mode === GameMode.Faction ? player.team! : player.group!;
 
-            const playerSource =
-                params.source?.__type === ObjectType.Player
-                    ? (params.source as Player)
-                    : undefined;
+            const playerSource = params.source?.__type === ObjectType.Player
+                ? (params.source as Player)
+                : undefined;
             if (player.downed) {
-                const finishedByTeammate =
-                    player.downedBy &&
-                    playerSource &&
-                    player.downedBy.teamId === playerSource.teamId;
+                const finishedByTeammate = player.downedBy
+                    && playerSource
+                    && player.downedBy.teamId === playerSource.teamId;
 
-                const nonPlayerKill =
-                    player.downedBy && params.damageType != GameConfig.DamageType.Player;
+                const nonPlayerKill = player.downedBy && params.damageType != GameConfig.DamageType.Player;
 
-                const teammateStoleKill =
-                    player.downedBy &&
-                    playerSource &&
-                    player.downedBy.__type === ObjectType.Player &&
-                    player.downedBy.teamId !== playerSource.teamId &&
-                    player.teamId === playerSource.teamId;
+                const teammateStoleKill = player.downedBy
+                    && playerSource
+                    && player.downedBy.__type === ObjectType.Player
+                    && player.downedBy.teamId !== playerSource.teamId
+                    && player.teamId === playerSource.teamId;
                 // give kill credit to the person that downed the player if it was killed by:
                 // a teammate, bleeding or non player source (airstrike, gas etc)
                 if (finishedByTeammate || nonPlayerKill || teammateStoleKill) {
@@ -380,7 +314,7 @@ export class GameModeManager {
                 // special case that only happens when the player has self_revive since the teammates wouldnt have previously been finished off
                 if (group.checkAllDowned(player) && !group.checkSelfRevive()) {
                     // don't kill teammates if any one has self revive
-                    group.killAllTeammates();
+                    group.killAllDowned();
                 }
                 return;
             }
@@ -393,7 +327,7 @@ export class GameModeManager {
                 group.allDeadOrDisconnected = true; // must set before any kill() calls so the gameovermsgs are accurate
                 player.kill(params);
                 if (allDowned) {
-                    group.killAllTeammates();
+                    group.killAllDowned();
                 }
             } else {
                 player.down(params);

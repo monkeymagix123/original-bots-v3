@@ -1,41 +1,43 @@
 import $ from "jquery";
 import * as PIXI from "pixi.js-legacy";
-import { MapDefs } from "../../shared/defs/mapDefs";
-import { GameConfig } from "../../shared/gameConfig";
-import * as net from "../../shared/net/net";
+import { GameConfig } from "../../shared/gameConfig.ts";
+import * as net from "../../shared/net/net.ts";
 import type {
     FindGameBody,
     FindGameError,
     FindGameMatchData,
     FindGameResponse,
-} from "../../shared/types/api";
-import { math } from "../../shared/utils/math";
-import { Account } from "./account";
-import { Ambiance } from "./ambiance";
-import { api } from "./api";
-import { AudioManager } from "./audioManager";
-import { ConfigManager, type ConfigType } from "./config";
-import { device } from "./device";
-import { errorLogManager } from "./errorLogs";
-import { Game } from "./game";
-import { helpers } from "./helpers";
-import { InputHandler } from "./input";
-import { InputBinds, InputBindUi } from "./inputBinds";
-import { OfflineServer } from "./offlineServer";
-import { PingTest } from "./pingTest";
-import { proxy } from "./proxy";
-import { ResourceManager } from "./resources";
-import { SDK } from "./sdk/sdk";
-import { SiteInfo } from "./siteInfo";
-import { LoadoutMenu } from "./ui/loadoutMenu";
-import { Localization } from "./ui/localization";
-import Menu from "./ui/menu";
-import { MenuModal } from "./ui/menuModal";
-import { LoadoutDisplay } from "./ui/opponentDisplay";
-import { Pass } from "./ui/pass";
-import { ProfileUi } from "./ui/profileUi";
-import { TeamMenu } from "./ui/teamMenu";
-import { loadStaticDomImages } from "./ui/ui2";
+    GameWsDisconnectReason,
+} from "../../shared/types/api.ts";
+import { math } from "../../shared/utils/math.ts";
+import { Account } from "./account.ts";
+import { Ambiance } from "./ambiance.ts";
+import { api } from "./api.ts";
+import { AudioManager } from "./audioManager.ts";
+import { type ConfigKey, ConfigManager, type ConfigType } from "./config.ts";
+import { device } from "./device.ts";
+import { errorLogManager } from "./errorLogs.ts";
+import { Game } from "./game.ts";
+import { helpers } from "./helpers.ts";
+import { InputHandler } from "./input.ts";
+import { InputBinds, InputBindUi } from "./inputBinds.ts";
+import { PingTest } from "./pingTest.ts";
+import { proxy } from "./proxy.ts";
+import { ResourceManager } from "./resources.ts";
+import { SDK } from "./sdk/sdk.ts";
+import { SiteInfo } from "./siteInfo.ts";
+import { LoadoutMenu } from "./ui/loadoutMenu.ts";
+import { Localization } from "./ui/localization.ts";
+import Menu from "./ui/menu.ts";
+import { MenuModal } from "./ui/menuModal.ts";
+import { LoadoutDisplay } from "./ui/opponentDisplay.ts";
+import { Pass } from "./ui/pass.ts";
+import { ProfileUi } from "./ui/profileUi.ts";
+import { TeamMenu } from "./ui/teamMenu.ts";
+import { loadStaticDomImages } from "./ui/ui2.ts";
+
+import { MapDefs } from "../../shared/defs/mapDefs.ts";
+import { OfflineServer } from "./offlineMode/offlineServer.ts";
 
 export class Application {
     nameInput = $("#player-name-input-solo");
@@ -72,7 +74,7 @@ export class Application {
     siteInfo!: SiteInfo;
     teamMenu!: TeamMenu;
 
-    pixi: PIXI.Application<PIXI.ICanvas> | null = null;
+    pixi: PIXI.Application<HTMLCanvasElement> | null = null;
     resourceManager: ResourceManager | null = null;
     input: InputHandler | null = null;
     inputBinds: InputBinds | null = null;
@@ -84,7 +86,7 @@ export class Application {
     initialized = false;
     active = false;
     sessionId = helpers.random64();
-    contextListener = function (e: MouseEvent) {
+    contextListener = function(e: MouseEvent) {
         e.preventDefault();
     };
 
@@ -154,8 +156,7 @@ export class Application {
                 this.localization.setLocale(window.spellSync.language);
                 this.updateLogoBasedOnLanguage(window.spellSync.language);
             } else {
-                const language =
-                    this.config.get("language") || this.localization.detectLocale();
+                const language = this.config.get("language") || this.localization.detectLocale();
                 this.config.set("language", language);
                 this.localization.setLocale(language);
                 this.updateLogoBasedOnLanguage(language);
@@ -248,7 +249,7 @@ export class Application {
                 this.tryJoinTeam(true);
             });
             $("#btn-team-mobile-link-join").on("click", () => {
-                let t = $<HTMLInputElement>("#team-link-input").val()?.trim()!;
+                let t = $<HTMLInputElement>("#team-link-input").val()!.trim()!;
                 const r = t.indexOf("#");
                 if (r >= 0) {
                     t = t.slice(r + 1);
@@ -312,7 +313,7 @@ export class Application {
             }
 
             const createPixiApplication = (forceCanvas: boolean) => {
-                return new PIXI.Application({
+                return new PIXI.Application<HTMLCanvasElement>({
                     width: window.innerWidth,
                     height: window.innerHeight,
                     view: domCanvas,
@@ -352,26 +353,28 @@ export class Application {
                 this.findGameAttempts = 0;
                 this.ambience.onGameStart();
             };
-            const onQuit = (errMsg?: string) => {
+            const onQuit = (errMsg?: GameWsDisconnectReason) => {
                 if (this.game!.m_updatePass) {
                     this.pass.scheduleUpdatePass(this.game!.m_updatePassDelay);
                 }
                 this.game!.free();
-                this.errorMessage = this.localization.translate(errMsg || "");
-                this.teamMenu.onGameComplete();
+                this.errorMessage = errMsg ? this.getErrorString(errMsg, "host_closed") : "";
+                this.teamMenu.onGameComplete(this.errorMessage);
                 this.ambience.onGameComplete(this.audioManager);
+                this.ambience.setMap(this.siteInfo?.info?.clientTheme || "main", this.audioManager);
                 this.setAppActive(true);
                 this.setPlayLockout(false);
-                if (errMsg == "index-invalid-protocol") {
+
+                if (errMsg == "invalid_protocol") {
                     this.showInvalidProtocolModal();
                 }
-                if (errMsg == "rate_limited") {
-                    this.onJoinGameError(errMsg);
+                if (errMsg == "behind_proxy" || errMsg == "ip_banned") {
+                    this.showErrorModal(errMsg);
                 }
                 if (errMsg) {
-                    this.showErrorModal(errMsg);
                     console.warn("Quitting", errMsg);
                 }
+
                 SDK.gamePlayStop();
             };
             this.game = new Game(
@@ -395,6 +398,15 @@ export class Application {
                 this.inputBinds,
                 this.account,
             );
+
+            if (this.pixi.renderer.type === PIXI.RENDERER_TYPE.WEBGL) {
+                this.pixi.view.addEventListener("webglcontextrestored", () => {
+                    if (this.game?.initialized && this.game.m_map.mapLoaded) {
+                        this.game.m_map.renderMap(this.pixi!.renderer, false);
+                    }
+                });
+            }
+
             this.loadoutMenu.loadoutDisplay = this.loadoutDisplay;
             this.onResize();
             this.tryJoinTeam(false);
@@ -405,15 +417,17 @@ export class Application {
 
             SDK.gameLoadComplete();
 
+            this.tryJoinGameFromParam();
+
             $(".btn-play").on("click", async (e) => {
                 const mapName = e.target.attributes.getNamedItem("data-mapName")!
                     .value as keyof typeof MapDefs;
 
-                $(e.target).html('<div class="ui-spinner"></div>');
+                $(e.target).html("<div class=\"ui-spinner\"></div>");
 
                 const res = await this.offlineServer.findGame(mapName);
                 if (res) {
-                    this.game?.tryJoinGame(res.gameId, res.data, "", () => {});
+                    this.game?.tryJoinGame(res.gameId, res.data, () => {});
                 }
             });
         }
@@ -496,13 +510,12 @@ export class Application {
         });
     }
 
-    onTeamMenuLeave(errTxt = "") {
-        if (errTxt && errTxt != "" && window.history) {
+    onTeamMenuLeave(errTxt?: string) {
+        if (errTxt && window.history) {
             window.history.replaceState("", "", "/");
         }
-        this.showErrorModal(errTxt);
 
-        this.errorMessage = errTxt;
+        this.errorMessage = errTxt || "";
         this.setDOMFromConfig();
         this.refreshUi();
     }
@@ -535,7 +548,7 @@ export class Application {
         this.languageSelect.val(this.localization.getLocale());
     }
 
-    onConfigModified(key?: string) {
+    onConfigModified(key?: ConfigKey) {
         const muteAudio = this.config.get("muteAudio")!;
         if (muteAudio != this.audioManager.mute) {
             this.muteBtns.removeClass(muteAudio ? "audio-on-icon" : "audio-off-icon");
@@ -568,6 +581,12 @@ export class Application {
 
         if (key == "highResTex") {
             location.reload();
+        }
+
+        if (key == "clientTheme") {
+            if (!this.game?.initialized) {
+                this.ambience.setMap(this.config.get("clientTheme") || "main", this.audioManager);
+            }
         }
 
         if (key === "debugHUD") {
@@ -607,7 +626,7 @@ export class Application {
         const updateButton = (ele: JQuery<HTMLElement>, gameModeIdx: number) => {
             ele.html(
                 this.quickPlayPendingModeIdx === gameModeIdx
-                    ? '<div class="ui-spinner"></div>'
+                    ? "<div class=\"ui-spinner\"></div>"
                     : this.localization.translate(ele.data("l10n")),
             );
         };
@@ -718,16 +737,16 @@ export class Application {
 
             const tryQuickStartGameImpl = () => {
                 this.waitOnAccount(() => {
-                    this.findGame(matchArgs, (err, matchData, ban) => {
-                        if (err) {
+                    this.findGame(matchArgs, {
+                        error: (err) => {
                             this.onJoinGameError(err);
-                            return;
-                        }
-                        if (ban) {
+                        },
+                        success: (data) => {
+                            this.joinGame(data);
+                        },
+                        ban: (ban) => {
                             this.showIpBanModal(ban);
-                            return;
-                        }
-                        this.joinGame(matchData!);
+                        },
                     });
                 });
             };
@@ -746,15 +765,15 @@ export class Application {
 
     findGame(
         matchArgs: FindGameBody,
-        cb: (
-            err?: FindGameError | null,
-            matchData?: FindGameMatchData,
-            ban?: FindGameResponse & { banned: true },
-        ) => void,
+        cbs: {
+            error: (err: FindGameError) => void;
+            success: (matchData: FindGameMatchData) => void;
+            ban: (data: FindGameResponse & { type: "banned" }) => void;
+        },
     ) {
         const findGameImpl = (iter: number, maxAttempts: number, token: string) => {
             if (iter >= maxAttempts) {
-                cb("full");
+                cbs.error("full");
                 return;
             }
             const retry = () => {
@@ -769,46 +788,27 @@ export class Application {
             };
             matchArgs.turnstileToken = token;
 
-            $.ajax({
-                type: "POST",
-                url: api.resolveUrl("/api/find_game"),
-                data: JSON.stringify(matchArgs),
-                contentType: "application/json; charset=utf-8",
-                timeout: 10 * 1000,
-                xhrFields: {
-                    withCredentials: proxy.anyLoginSupported(),
+            fetch(api.resolveUrl("/api/find_game_v2"), {
+                method: "POST",
+                body: JSON.stringify(matchArgs),
+                headers: {
+                    "Content-Type": "application/json; charset=utf-8",
                 },
-                success: (data: FindGameResponse) => {
-                    if (data.error === "invalid_captcha") {
-                        // captch may have failed because the enabled state has changed since site info was loaded
-                        // so force it to true
-                        this.siteInfo.info.captchaEnabled = true;
-                        retry();
-                        return;
-                    }
-
-                    if (data.error && data.error != "full") {
-                        cb(data.error);
-                        return;
-                    }
-
-                    if (data.banned) {
-                        cb(null, undefined, data as FindGameResponse & { banned: true });
-                        return;
-                    }
-
-                    const matchData = data.res ? data.res[0] : null;
-                    if (matchData?.hosts && matchData.addrs) {
-                        cb(null, matchData);
-                    } else {
-                        retry();
-                    }
-                },
-                error: function (_e) {
-                    retry();
-                },
+                credentials: proxy.anyLoginSupported() ? "include" : "omit",
+                signal: helpers.abortSignal(10 * 1000),
+            }).then(res => res.json()).then((data: FindGameResponse) => {
+                if (data.type === "error") {
+                    cbs.error(data.error);
+                } else if (data.type === "banned") {
+                    cbs.ban(data);
+                } else if (data.type === "success") {
+                    cbs.success(data.res);
+                }
+            }).catch(() => {
+                retry();
             });
         };
+
         helpers.verifyTurnstile(
             this.siteInfo.info.captchaEnabled && !this.account.loggedIn,
             (token) => {
@@ -824,42 +824,71 @@ export class Application {
             }, 250);
             return;
         }
-        const hosts = matchData.hosts || [];
-        const urls: string[] = [];
-        for (let i = 0; i < hosts.length; i++) {
-            urls.push(
-                `ws${matchData.useHttps ? "s" : ""}://${hosts[i]}/play?gameId=${
-                    matchData.gameId
-                }`,
-            );
-        }
+        const urls = [...matchData.urls];
+
         const joinGameImpl = (urls: string[], matchData: FindGameMatchData) => {
             const url = urls.shift();
             if (!url) {
                 this.onJoinGameError("join_game_failed");
                 return;
             }
-            const onFailure = function () {
+            const onFailure = function() {
                 joinGameImpl(urls, matchData);
             };
             this.game!.tryJoinGame(
                 url,
-                matchData.data,
-                this.account.questPriv,
+                matchData.joinToken,
                 onFailure,
             );
         };
         joinGameImpl(urls, matchData);
     }
 
-    onJoinGameError(err: FindGameError) {
-        const errMap: Partial<Record<FindGameError, string>> = {
+    tryJoinGameFromParam() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.has("u") && params.has("jt")) {
+            try {
+                const urls = atob(params.get("u")!).split(",");
+                const joinToken = params.get("jt")!;
+
+                this!.joinGame({ urls, joinToken });
+            } catch (e) {
+                console.error("Failed to parse join data:", e);
+                this.onJoinGameError("join_game_failed");
+            }
+
+            params.delete("u");
+            params.delete("jt");
+            window.history.pushState(
+                "",
+                "",
+                params.size ? `${window.location.pathname}?${params.toString()}` : window.location.pathname,
+            );
+        }
+    }
+
+    getErrorString(err: FindGameError | GameWsDisconnectReason, fallback: "host_closed" | "full") {
+        const errMap: Partial<Record<FindGameError | GameWsDisconnectReason, string>> = {
+            banned: this.localization.translate("index-ip-banned"),
+            behind_proxy: this.localization.translate("index-behind-proxy"),
+            find_game_failed: this.localization.translate("index-failed-finding-game"),
             full: this.localization.translate("index-failed-finding-game"),
-            invalid_protocol: this.localization.translate("index-invalid-protocol"),
+            host_closed: this.localization.translate("index-host-closed"),
             invalid_captcha: this.localization.translate("index-invalid-captcha"),
+            invalid_packet: this.localization.translate("index-invalid-packet"),
+            invalid_protocol: this.localization.translate("index-invalid-protocol"),
+            invalid_token: this.localization.translate("index-invalid-token"),
+            ip_banned: this.localization.translate("index-ip-banned"),
             join_game_failed: this.localization.translate("index-failed-joining-game"),
+            player_not_found: this.localization.translate("index-player-not-found"),
             rate_limited: this.localization.translate("index-rate-limited"),
+            server_crashed: this.localization.translate("index-server-crashed"),
+            server_restart: this.localization.translate("index-server-restart"),
         };
+        return errMap[err] || errMap[fallback]!;
+    }
+
+    onJoinGameError(err: FindGameError) {
         if (err == "invalid_protocol") {
             this.showInvalidProtocolModal();
         }
@@ -870,9 +899,11 @@ export class Application {
         if (err === "invalid_captcha") {
             this.siteInfo.info.captchaEnabled = true;
         }
-        this.showErrorModal(err);
+        if (err == "behind_proxy" || err == "banned") {
+            this.showErrorModal(err);
+        }
 
-        this.errorMessage = errMap[err] || errMap.full!;
+        this.errorMessage = this.getErrorString(err, "full");
         this.quickPlayPendingModeIdx = -1;
         this.teamMenu.leave("join_game_failed");
         this.refreshUi();
@@ -882,7 +913,7 @@ export class Application {
         this.refreshModal.show(true);
     }
 
-    showIpBanModal(ban: FindGameResponse & { banned: true }) {
+    showIpBanModal(ban: FindGameResponse & { type: "banned" }) {
         $("#modal-ip-banned-reason").text(`Reason: ${ban.reason}`);
 
         let expiration = "Duration: indefinite";
@@ -911,15 +942,8 @@ export class Application {
         this.refreshUi();
     }
 
-    showErrorModal(err: string) {
-        const typeText: Record<string, string> = {
-            // TODO: translate those?
-            behind_proxy: this.localization.translate("index-behind-proxy"),
-            ip_banned: this.localization.translate("index-ip-banned"),
-        };
-
-        const text = typeText[err];
-
+    showErrorModal(err: FindGameError | GameWsDisconnectReason) {
+        const text = this.getErrorString(err, "full");
         if (text) {
             this.errorModal.selector.find(".modal-body-text").html(text);
             this.errorModal.show();
@@ -1018,7 +1042,7 @@ window.addEventListener("blur", () => {
 });
 
 const reportedErrors: string[] = [];
-window.onerror = function (msg, url, lineNo, columnNo, error) {
+window.onerror = function(msg, url, lineNo, columnNo, error) {
     msg = msg || "undefined_error_msg";
     const stacktrace = error ? error.stack : "";
 
@@ -1030,7 +1054,7 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
     if (!url.startsWith(location.href) || !/.js|.ts/.test(url)) return;
 
     // ignore scrappers
-    if (/googlebot|bingbot|yandexbot/gi.test(navigator.userAgent)) return;
+    if (/googlebot|bingbot|yandexbot|mediapartners-google/gi.test(navigator.userAgent)) return;
 
     const errObj = {
         msg,
@@ -1052,9 +1076,3 @@ window.onerror = function (msg, url, lineNo, columnNo, error) {
         errorLogManager.logWindowOnError(errObj);
     }
 };
-
-navigator.serviceWorker?.getRegistrations().then((registrations) => {
-    for (const registration of registrations) {
-        registration.unregister();
-    }
-});

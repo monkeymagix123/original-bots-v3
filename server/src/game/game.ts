@@ -1,50 +1,31 @@
-import { GameConfig, TeamMode } from "../../../shared/gameConfig";
-import * as net from "../../../shared/net/net";
-import type { Loadout } from "../../../shared/utils/loadout";
-import { math } from "../../../shared/utils/math";
-import { v2 } from "../../../shared/utils/v2";
-import { Config } from "../config";
-import { ServerLogger } from "../utils/logger";
-import { apiPrivateRouter } from "../utils/serverHelpers";
-import type {
-    FindGamePrivateBody,
-    SaveGameBody,
-    ServerGameConfig,
-    UpdateDataMsg,
-} from "../utils/types";
-import { GameModeManager } from "./gameModeManager";
-import { Grid } from "./grid";
-import { GameMap } from "./map";
-import { AirdropBarn } from "./objects/airdrop";
-import { BulletBarn } from "./objects/bullet";
-import { DeadBodyBarn } from "./objects/deadBody";
-import { DecalBarn } from "./objects/decal";
-import { ExplosionBarn } from "./objects/explosion";
-import { type GameObject, ObjectRegister } from "./objects/gameObject";
-import { Gas } from "./objects/gas";
-import { LootBarn } from "./objects/loot";
-import { MapIndicatorBarn } from "./objects/mapIndicator";
-import { PlaneBarn } from "./objects/plane";
-import { PlayerBarn } from "./objects/player";
-import { ProjectileBarn } from "./objects/projectile";
-import { SmokeBarn } from "./objects/smoke";
-import { BotManager } from "./bots/botManager";
-import { PluginManager } from "./pluginManager";
-import { Profiler } from "./profiler";
-
-export enum ProcessMsgType {
-    Create,
-    Created,
-    KeepAlive,
-    UpdateData,
-    AddJoinToken,
-    SetBotsConfig,
-    SocketMsg,
-    SocketClose,
-}
+import type { MapDefKey } from "../../../shared/defs/mapDefs.ts";
+import { TeamMode } from "../../../shared/gameConfig.ts";
+import type { Loadout } from "../../../shared/utils/loadout.ts";
+import { math } from "../../../shared/utils/math.ts";
+import { Config } from "../config.ts";
+import { ServerLogger } from "../utils/logger.ts";
+import { type FindGamePrivateBody, type ServerGameConfig } from "../utils/types.ts";
+import { BotManager } from "./bots/botManager.ts";
+import { ClientBarn } from "./client.ts";
+import { GameModeManager } from "./gameModeManager.ts";
+import { Grid } from "./grid.ts";
+import { GameMap } from "./map.ts";
+import { AirdropBarn } from "./objects/airdrop.ts";
+import { BulletBarn } from "./objects/bullet.ts";
+import { DeadBodyBarn } from "./objects/deadBody.ts";
+import { DecalBarn } from "./objects/decal.ts";
+import { ExplosionBarn } from "./objects/explosion.ts";
+import { type GameObject, ObjectRegister } from "./objects/gameObject.ts";
+import { Gas } from "./objects/gas.ts";
+import { LootBarn } from "./objects/loot.ts";
+import { MapIndicatorBarn } from "./objects/mapIndicator.ts";
+import { PlaneBarn } from "./objects/plane.ts";
+import { PlayerBarn } from "./objects/player.ts";
+import { ProjectileBarn } from "./objects/projectile.ts";
+import { SmokeBarn } from "./objects/smoke.ts";
+import { Profiler } from "./profiler.ts";
 
 export interface JoinTokenData {
-    expiresAt: number;
     userId: string | null;
     findGameIp: string;
     loadout?: Loadout;
@@ -56,22 +37,44 @@ export interface JoinTokenData {
     };
 }
 
+export interface SpectateTokenData {
+    playerId: number;
+    specAnon: boolean;
+    noSpecCooldown: boolean;
+}
+
+type JoinToken = {
+    type: "join";
+    expiresAt: number;
+    data: JoinTokenData;
+} | {
+    type: "spectate";
+    expiresAt: number;
+    data: SpectateTokenData;
+};
+
 export class Game {
     started = false;
     stopped = false;
-    // for debug
-    preventStart = false;
-    allowJoin = false;
     over = false;
+    winningTeamId = 0;
     startedTime = 0;
     stopTicker = 0;
+    timeRunning = 0;
+    // used to stop the game if theres no connected players
+    noPlayersTicker = 0;
+
     id: string;
     teamMode: TeamMode;
-    mapName: string;
+    mapName: MapDefKey;
     isTeamMode: boolean;
     config: ServerGameConfig;
-    pluginManager = new PluginManager(this);
     modeManager: GameModeManager;
+
+    now!: number;
+    profiler = new Profiler();
+    perfTicker = 0;
+    tickTimes: number[] = [];
 
     tickTimeWarnThreshold = (1000 / Config.gameTps) * 4;
     gameTickWarnings = 0;
@@ -79,25 +82,19 @@ export class Game {
     netSyncWarnThreshold = (1000 / Config.netSyncTps) * 4;
     netSyncWarnings = 0;
 
-    grid: Grid<GameObject>;
-    objectRegister: ObjectRegister;
-
-    joinTokens = new Map<string, JoinTokenData>();
+    joinTokens = new Map<string, JoinToken>();
 
     get aliveCount(): number {
         return this.playerBarn.livingPlayers.length;
     }
 
-    get trueAliveCount(): number {
-        return this.playerBarn.livingPlayers.filter((p) => !p.disconnected).length;
-    }
+    grid: Grid<GameObject>;
+    map: GameMap;
+    gas: Gas;
+    botManager: BotManager;
+    objectRegister: ObjectRegister;
 
-    /**
-     * All msgs created this tick that will be sent to all players
-     * cached in a single stream
-     */
-    msgsToSend = new net.MsgStream(new ArrayBuffer(4096));
-
+    clientBarn: ClientBarn;
     playerBarn: PlayerBarn;
     lootBarn: LootBarn;
     deadBodyBarn: DeadBodyBarn;
@@ -106,35 +103,18 @@ export class Game {
     bulletBarn: BulletBarn;
     smokeBarn: SmokeBarn;
     airdropBarn: AirdropBarn;
-
     explosionBarn: ExplosionBarn;
     planeBarn: PlaneBarn;
     mapIndicatorBarn: MapIndicatorBarn;
 
-    map: GameMap;
-    gas: Gas;
-    botManager: BotManager;
-
-    now!: number;
-
-    perfTicker = 0;
-    tickTimes: number[] = [];
-
     logger: ServerLogger;
 
-    start = Date.now();
-
-    profiler = new Profiler();
-
+    // for debug
+    preventStart = false;
     debugSpeedMulti = 1;
 
-    constructor(
-        id: string,
-        config: ServerGameConfig,
-        readonly sendSocketMsg: (id: string, data: Uint8Array) => void,
-        readonly closeSocket: (id: string, reason?: string) => void,
-        readonly sendData?: (data: UpdateDataMsg) => void,
-    ) {
+    constructor(id: string, config: ServerGameConfig) {
+        const start = Date.now();
         this.id = id;
         this.logger = new ServerLogger(`Game #${this.id.substring(0, 4)}`);
         this.logger.info("Creating");
@@ -149,6 +129,7 @@ export class Game {
         this.grid = new Grid(this.map.width, this.map.height);
         this.objectRegister = new ObjectRegister(this.grid);
 
+        this.clientBarn = new ClientBarn(this);
         this.playerBarn = new PlayerBarn(this);
         this.lootBarn = new LootBarn(this);
         this.deadBodyBarn = new DeadBodyBarn(this);
@@ -157,8 +138,6 @@ export class Game {
         this.bulletBarn = new BulletBarn(this);
         this.smokeBarn = new SmokeBarn(this);
         this.airdropBarn = new AirdropBarn(this);
-        this.explosionBarn = new ExplosionBarn(this);
-        this.planeBarn = new PlaneBarn(this);
         this.explosionBarn = new ExplosionBarn(this);
         this.planeBarn = new PlaneBarn(this);
         this.mapIndicatorBarn = new MapIndicatorBarn();
@@ -173,15 +152,10 @@ export class Game {
                 this.playerBarn.addTeam(i);
             }
         }
-    }
 
-    async init() {
-        await this.pluginManager.loadPlugins();
         this.map.init();
-        this.pluginManager.emit("gameCreated", this);
 
-        this.allowJoin = true;
-        this.logger.info(`Created in ${Date.now() - this.start} ms`);
+        this.logger.info(`Created in ${Date.now() - start} ms`);
 
         this.updateData();
     }
@@ -205,12 +179,14 @@ export class Game {
     }
 
     update(dt?: number) {
-        if (!this.allowJoin) return;
+        if (this.stopped) return;
         this.profiler.flush();
 
         const now = performance.now();
         if (!this.now) this.now = now;
         dt ??= math.clamp((now - this.now) / 1000, 0.001, 1 / 8);
+
+        this.timeRunning += dt;
 
         dt *= this.debugSpeedMulti;
 
@@ -228,6 +204,22 @@ export class Game {
             this.started = this.modeManager.isGameStarted();
             if (this.started) {
                 this.gas.advanceGasStage();
+            } else {
+                const connected = this.playerBarn.players.reduce((a, b) => {
+                    return a + (b.disconnected ? 0 : 1);
+                }, 0);
+                if (connected === 0) {
+                    this.noPlayersTicker += dt;
+                } else {
+                    this.noPlayersTicker = 0;
+                }
+                // after 30 seconds of no connected players on a game that didn't start
+                // we just force stop the game so it doesn't run forever...
+                if (this.noPlayersTicker > 30) {
+                    this.over = true;
+                    this.stop();
+                    return;
+                }
             }
         }
 
@@ -242,10 +234,16 @@ export class Game {
 
         this.profiler.addSample("bots");
         this.botManager.update(dt);
+        // Wave completion happens after the last death, when the bot manager advances rounds.
+        if (this.map.isWaveMap) this.checkGameOver();
         this.profiler.endSample();
 
         this.profiler.addSample("players");
         this.playerBarn.update(dt);
+        this.profiler.endSample();
+
+        this.profiler.addSample("clients");
+        this.clientBarn.update(dt);
         this.profiler.endSample();
 
         this.profiler.addSample("map");
@@ -318,8 +316,7 @@ export class Game {
             this.perfTicker += dt;
             if (this.perfTicker >= 15) {
                 this.perfTicker = 0;
-                const mspt =
-                    this.tickTimes.reduce((a, b) => a + b) / this.tickTimes.length;
+                const mspt = this.tickTimes.reduce((a, b) => a + b) / this.tickTimes.length;
 
                 this.logger.debug(
                     `Avg ms/tick: ${mspt.toFixed(2)} | Load: ${((mspt / (1000 / Config.gameTps)) * 100).toFixed(1)}%`,
@@ -330,28 +327,26 @@ export class Game {
     }
 
     netSync() {
-        if (!this.allowJoin) return;
+        if (this.stopped) return;
 
         const start = performance.now();
 
         // serialize objects and send msgs
         this.objectRegister.serializeObjs();
-        this.playerBarn.sendMsgs();
+        this.clientBarn.sendMsgs();
 
         //
         // reset stuff
         //
+        this.clientBarn.flush();
         this.playerBarn.flush();
         this.lootBarn.flush();
         this.planeBarn.flush();
         this.bulletBarn.flush();
-        this.airdropBarn.flush();
         this.objectRegister.flush();
         this.explosionBarn.flush();
         this.gas.flush();
         this.mapIndicatorBarn.flush();
-
-        this.msgsToSend.stream.index = 0;
 
         const syncTime = performance.now() - start;
         if (syncTime > 1000) {
@@ -374,224 +369,22 @@ export class Game {
     }
 
     get canJoin(): boolean {
-        const isWaveMap = !!this.map.mapDef.isWave;
-        let aliveForJoin = this.aliveCount;
-        if (isWaveMap) {
-            aliveForJoin = this.playerBarn.livingPlayers.filter(
-                (p) => !p.isAi && !p.bot,
-            ).length;
-        }
         return (
-            aliveForJoin < this.map.mapDef.gameMode.maxPlayers &&
-            !this.over &&
-            this.startedTime < 60
+            (this.map.mapDef.isWave
+                    ? this.playerBarn.livingPlayers.filter(p => !p.isAi && !p.bot).length
+                    : this.aliveCount) < this.map.mapDef.gameMode.maxPlayers
+            && !this.over
+            && this.startedTime < 60
         );
-    }
-
-    deserializeMsg(buff: ArrayBuffer): {
-        type: net.MsgType;
-        msg: net.AbstractMsg | undefined;
-        error?: string;
-    } {
-        const msgStream = new net.MsgStream(buff);
-        const stream = msgStream.stream;
-
-        const type = msgStream.deserializeMsgType();
-
-        let msg:
-            | net.JoinMsg
-            | net.InputMsg
-            | net.EmoteMsg
-            | net.DropItemMsg
-            | net.SpectateMsg
-            | net.PerkModeRoleSelectMsg
-            | net.EditMsg
-            | undefined = undefined;
-
-        switch (type) {
-            case net.MsgType.Join: {
-                // read protocol version outside of JoinMsg
-                // reason: if theres a protocol change in JoinMsg it will fail to deserialize the entire msg
-                // and won't give the proper invalid-protocol error
-                // so we read it before deserializing the msg to avoid it throwing and giving the wrong error
-
-                const oldIdx = stream.index;
-                const protocol = stream.readUint32();
-
-                if (protocol !== GameConfig.protocolVersion) {
-                    return {
-                        type: net.MsgType.Join,
-                        msg: undefined,
-                        error: "index-invalid-protocol",
-                    };
-                }
-                stream.index = oldIdx;
-
-                msg = new net.JoinMsg();
-                msg.deserialize(stream);
-                break;
-            }
-            case net.MsgType.Input: {
-                msg = new net.InputMsg();
-                msg.deserialize(stream);
-                break;
-            }
-            case net.MsgType.Emote:
-                msg = new net.EmoteMsg();
-                msg.deserialize(stream);
-                break;
-            case net.MsgType.DropItem:
-                msg = new net.DropItemMsg();
-                msg.deserialize(stream);
-                break;
-            case net.MsgType.Spectate:
-                msg = new net.SpectateMsg();
-                msg.deserialize(stream);
-                break;
-            case net.MsgType.PerkModeRoleSelect:
-                msg = new net.PerkModeRoleSelectMsg();
-                msg.deserialize(stream);
-                break;
-            case net.MsgType.Edit:
-                if (!Config.debug.allowEditMsg) break;
-                msg = new net.EditMsg();
-                msg.deserialize(stream);
-                break;
-        }
-
-        return {
-            type,
-            msg,
-        };
-    }
-
-    handleMsg(buff: ArrayBuffer | Buffer, socketId: string, ip: string) {
-        if (!(buff instanceof ArrayBuffer)) return;
-
-        const player = this.playerBarn.socketIdToPlayer.get(socketId);
-
-        let msg: net.AbstractMsg | undefined = undefined;
-        let type = net.MsgType.None;
-        let error: string | undefined;
-
-        try {
-            const deserialized = this.deserializeMsg(buff);
-            msg = deserialized.msg;
-            type = deserialized.type;
-            error = deserialized.error;
-        } catch (err) {
-            this.logger.error(
-                "Failed to deserialize msg: ",
-                err,
-                "msg buffer: ",
-                // JSON.stringify doesn't work on buffers, so need to convert to an Uint8Array first
-                // and then to a regular array... 😭
-                // the slice is to make sure it doesn't overflow the error webhook
-                JSON.stringify([...new Uint8Array(buff.slice(0, 255))]),
-            );
-            if (player) {
-                player.disconnect();
-            } else {
-                this.closeSocket(socketId);
-            }
-            return;
-        }
-
-        if (error) {
-            if (player) {
-                player.disconnect();
-            } else {
-                this.closeSocket(socketId);
-            }
-            return;
-        }
-
-        if (!msg) return;
-
-        if (type === net.MsgType.Join && !player) {
-            this.playerBarn.addPlayer(socketId, msg as net.JoinMsg, ip);
-            return;
-        }
-
-        if (!player) {
-            this.closeSocket(socketId);
-            return;
-        }
-
-        if (player.disconnected) {
-            return;
-        }
-
-        switch (type) {
-            case net.MsgType.Input: {
-                player.handleInput(msg as net.InputMsg);
-                break;
-            }
-            case net.MsgType.Emote: {
-                player.emoteFromMsg(msg as net.EmoteMsg);
-                break;
-            }
-            case net.MsgType.DropItem: {
-                player.dropItem(msg as net.DropItemMsg);
-                break;
-            }
-            case net.MsgType.Spectate: {
-                player.spectate(msg as net.SpectateMsg);
-                break;
-            }
-            case net.MsgType.PerkModeRoleSelect: {
-                player.roleSelect((msg as net.PerkModeRoleSelectMsg).role);
-                break;
-            }
-            case net.MsgType.Edit: {
-                player.processEditMsg(msg as net.EditMsg);
-                break;
-            }
-        }
-    }
-
-    handleSocketClose(socketId: string) {
-        const player = this.playerBarn.socketIdToPlayer.get(socketId);
-        if (!player) return;
-        this.logger.info(`"${player.name}" left`);
-        player.questManager.flushProgress();
-        player.disconnected = true;
-        player.group?.checkPlayers();
-        player.spectating = undefined;
-        player.dirNew = v2.create(1, 0);
-        player.setPartDirty();
-        if (player.canDespawn()) {
-            player.game.playerBarn.removePlayer(player);
-        }
-    }
-
-    broadcastMsg(type: net.MsgType, msg: net.Msg) {
-        this.msgsToSend.serializeMsg(type, msg);
-    }
-
-    async sendQuestProgress(
-        userId: string,
-        progress: Array<{ id: string; delta: number }>,
-    ) {
-        try {
-            const req = await apiPrivateRouter.quest_progress.$post({
-                json: {
-                    userId,
-                    progress,
-                },
-            });
-            const res = await req.json();
-            if (!req.ok || !(res as { success: boolean }).success) {
-                this.logger.error(`Failed to save quest progress`, res);
-            }
-        } catch (err) {
-            this.logger.error(`Failed to save quest progress:`, err);
-        }
     }
 
     checkGameOver() {
         if (this.over) return;
-        const didGameEnd: boolean = this.modeManager.handleGameEnd();
+
+        const didGameEnd = this.started && (this.map.mapDef.isWave
+            ? this.botManager.wavesComplete
+                || this.playerBarn.livingPlayers.every(p => p.isAi || p.bot || p.disconnected)
+            : this.modeManager.aliveCount() <= 1);
 
         if (didGameEnd) {
             this.over = true;
@@ -601,6 +394,15 @@ export class Game {
             // stop game after 1.8s
             this.stopTicker = 1.8;
 
+            const mvp = this.modeManager.getFactionMvp();
+            this.playerBarn.factionsMvp = mvp;
+            mvp?.questManager.trackEvent("be_mvp", { role: mvp.role });
+
+            this.winningTeamId = this.modeManager.getWinningTeamId();
+            // forcefully flush progress, because after this point, any unsynced updates are lost
+            for (const player of this.playerBarn.players) {
+                player.questManager.flushProgress(this.winningTeamId);
+            }
             this.updateData();
         }
     }
@@ -613,128 +415,46 @@ export class Game {
         };
 
         for (const token of tokens) {
-            this.joinTokens.set(token.token, {
+            this.joinTokens.set(token.joinToken, {
+                type: "join",
                 expiresAt: Date.now() + 10000,
-                userId: token.userId,
-                groupData,
-                findGameIp: token.ip,
-                loadout: token.loadout,
-                quests: token.quests,
+                data: {
+                    userId: token.userId,
+                    groupData,
+                    findGameIp: token.ip,
+                    loadout: token.loadout,
+                    quests: token.quests,
+                },
             });
         }
     }
 
-    updateData() {
-        this.sendData?.({
-            type: ProcessMsgType.UpdateData,
-            id: this.id,
-            teamMode: this.teamMode,
-            mapName: this.mapName,
-            canJoin: this.canJoin,
-            aliveCount: this.aliveCount,
-            startedTime: this.startedTime,
-            stopped: this.stopped,
+    addSpectateToken(token: string, data: SpectateTokenData) {
+        this.joinTokens.set(token, {
+            type: "spectate",
+            expiresAt: Date.now() + 60000,
+            data,
         });
     }
 
     stop() {
         if (this.stopped) return;
         this.stopped = true;
-        this.allowJoin = false;
-        for (const player of this.playerBarn.players) {
-            if (!player.disconnected) {
-                player.disconnect();
-            }
+        for (const client of this.clientBarn.clients) {
+            client.disconnect();
         }
         this.logger.info("Game Ended");
-        this.updateData();
         this._saveGameToDatabase();
+        this.updateData();
     }
 
-    private async _saveGameToDatabase() {
-        const players = this.modeManager.getPlayersSortedByRank();
-        /**
-         * teamTotal is for total teams that started the match, i hope?
-         *
-         * it also seems to be unused by the client so we could also remove it?
-         */
-        const teamTotal = new Set(players.map(({ player }) => player.teamId)).size;
+    // implementation of those is on gameProcess.ts
+    // this keeps the base Game class free of nodejs imports and the ability to make network requests
+    // to make offline mode and unit tests easier to maintain
 
-        const teamKills = players.reduce(
-            (acc, curr) => {
-                acc[curr.player.teamId] =
-                    (acc[curr.player.teamId] ?? 0) + curr.player.kills;
-                return acc;
-            },
-            {} as Record<string, number>,
-        );
-
-        const values: SaveGameBody["matchData"] = players.map(({ player, rank }) => {
-            return {
-                // *NOTE: userId is optional; we save the game stats for non logged users too
-                userId: player.userId,
-                region: Config.gameServer.thisRegion,
-                username: player.name,
-                playerId: player.matchDataId,
-                teamMode: this.teamMode,
-                teamCount: player.group?.players.length ?? 1,
-                teamTotal: teamTotal,
-                teamId: player.teamId,
-                timeAlive: Math.round(player.timeAlive),
-                died: player.dead,
-                kills: player.kills,
-                team_kills: teamKills[player.groupId] ?? 0,
-                damageDealt: Math.round(player.damageDealt),
-                damageTaken: Math.round(player.damageTaken),
-                killerId: player.killedBy?.matchDataId || 0,
-                gameId: this.id,
-                mapId: this.map.mapId,
-                mapSeed: this.map.seed,
-                killedIds: player.killedIds,
-                rank: rank,
-                ip: player.ip,
-                findGameIp: player.findGameIp,
-                role: player.role,
-            };
-        });
-
-        // only save the game if it has more than 2 players lol
-        if (values.length < 2) return;
-
-        // FIXME: maybe move this to the parent game server process?
-        // to avoid blocking the game from being GC'd until this request is done
-        // and opening a database in each process if it fails
-        // etc
-        let res: Response | undefined = undefined;
-        try {
-            res = await apiPrivateRouter.save_game.$post({
-                json: {
-                    matchData: values,
-                },
-            });
-        } catch (err) {
-            this.logger.error(`Failed to fetch API save game:`, err);
-        }
-
-        if (!res || !res.ok) {
-            const region = Config.gameServer.thisRegion.toUpperCase();
-            this.logger.error(
-                `[${region}] Failed to save game data, saving locally instead`,
-            );
-
-            /*
-            const dir = path.resolve("lost_game_data");
-            if (!fs.existsSync(dir)) {
-                fs.mkdirSync(dir);
-            }
-            fs.writeFileSync(
-                path.join(dir, `${this.id}.json`),
-                JSON.stringify(values),
-                "utf8",
-            );
-            */
-        }
-    }
+    updateData() {}
+    protected _saveGameToDatabase() {}
+    sendQuestProgress(_userId: string, _progress: Array<{ id: string; delta: number }>) {}
 
     /**
      * Steps the game X seconds in the future

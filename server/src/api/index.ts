@@ -1,36 +1,29 @@
 import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
 import { Cron } from "croner";
-import { randomUUID } from "crypto";
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
-import { version } from "../../../package.json";
-import {
-    type FindGameResponse,
-    type SiteInfoRes,
-    zFindGameBody,
-} from "../../../shared/types/api";
-import { Config } from "../config";
-import { GIT_VERSION } from "../utils/gitRevision";
-import { getFindGamePlayerData } from "../utils/playerData";
-import {
-    getHonoIp,
-    HTTPRateLimit,
-    isBehindProxy,
-    logErrorToWebhook,
-    verifyTurnsStile,
-} from "../utils/serverHelpers";
-import { server } from "./apiServer";
-import { deleteExpiredSessions, validateSessionToken } from "./auth";
-import { rateLimitMiddleware, validateParams } from "./auth/middleware";
-import type { SessionTableSelect, UsersTableSelect } from "./db/schema";
-import { cleanupOldLogs, isBanned } from "./routes/private/ModerationRouter";
-import { PrivateRouter } from "./routes/private/private";
-import { StatsRouter } from "./routes/stats/StatsRouter";
-import { AuthRouter } from "./routes/user/AuthRouter";
-import { UserRouter } from "./routes/user/UserRouter";
+import { randomUUID } from "node:crypto";
+import pkgJson from "../../../package.json" with { type: "json" };
+import { type FindGameResponse, type SiteInfoRes, zFindGameBody } from "../../../shared/types/api.ts";
+import { Config } from "../config.ts";
+import { GIT_VERSION } from "../utils/gitRevision.ts";
+import { logErrorToWebhook } from "../utils/logger.ts";
+import { isBehindProxy } from "../utils/proxyCheck.ts";
+import { HTTPRateLimit } from "../utils/rateLimit.ts";
+import { getFindGamePlayerData } from "./apiHelpers.ts";
+import { getHonoIp, verifyTurnsStile } from "./apiHelpers.ts";
+import { server } from "./apiServer.ts";
+import { deleteExpiredSessions, validateSessionToken } from "./auth/index.ts";
+import { rateLimitMiddleware, validateParams } from "./auth/middleware.ts";
+import type { SessionTableSelect, UsersTableSelect } from "./db/schema.ts";
+import { cleanupOldLogs, isBanned } from "./routes/private/ModerationRouter.ts";
+import { PrivateRouter } from "./routes/private/private.ts";
+import { StatsRouter } from "./routes/stats/StatsRouter.ts";
+import { AuthRouter } from "./routes/user/AuthRouter.ts";
+import { UserRouter } from "./routes/user/UserRouter.ts";
 
 export type Context = {
     Variables: {
@@ -57,6 +50,18 @@ app.onError((err: unknown, c) => {
     }
     return c.text("Internal Server Error", 500);
 });
+
+if (server.logger.config.debugLogs) {
+    app.use("*", async (ctx, next) => {
+        const url = ctx.req.path;
+        server.logger.debug(`start: ${url}`);
+        const start = performance.now();
+        await next();
+
+        const time = Math.round(performance.now() - start);
+        server.logger.debug(`end  : ${url} time: ${time}ms`);
+    });
+}
 
 app.use(
     "/api/*",
@@ -86,28 +91,32 @@ app.get("/api/site_info", (c) => {
 // not using the middleware here to not add extra indentation... smh
 const findGameRateLimit = new HTTPRateLimit(5, 3000);
 
-app.post("/api/find_game", validateParams(zFindGameBody), async (c) => {
+app.post("/api/find_game", (c) => {
+    return c.json({ error: "invalid_protocol" });
+});
+
+app.post("/api/find_game_v2", validateParams(zFindGameBody), async (c) => {
     const ip = getHonoIp(c, Config.apiServer.proxyIPHeader);
 
     if (!ip) {
-        return c.json<FindGameResponse>({ error: "invalid_ip" }, 500);
+        return c.json<FindGameResponse>({ type: "error", error: "invalid_ip" }, 500);
     }
 
     if (findGameRateLimit.isRateLimited(ip)) {
-        return c.json<FindGameResponse>({ error: "rate_limited" }, 429);
+        return c.json<FindGameResponse>({ type: "error", error: "rate_limited" }, 429);
     }
 
     const banData = await isBanned(ip);
     if (banData) {
         return c.json<FindGameResponse>({
-            banned: true,
+            type: "banned",
             reason: banData.reason,
             permanent: banData.permanent,
             expiresIn: banData.expiresIn,
         });
     }
 
-    const token = randomUUID();
+    const joinToken = randomUUID();
     let user: UsersTableSelect | null = null;
 
     const sessionId = getCookie(c, "session") ?? null;
@@ -126,34 +135,35 @@ app.post("/api/find_game", validateParams(zFindGameBody), async (c) => {
         }
     }
 
-    if (await isBehindProxy(ip, user ? 0 : 3)) {
-        return c.json<FindGameResponse>({ error: "behind_proxy" });
+    if (await isBehindProxy(ip, !user)) {
+        return c.json<FindGameResponse>({ type: "error", error: "behind_proxy" });
     }
 
     const body = c.req.valid("json");
+
+    const mode = server.modes[body.gameModeIdx];
+    if (!mode || !mode.enabled) {
+        return c.json<FindGameResponse>({ type: "error", error: "mode_disabled" });
+    }
+
     if (server.captchaEnabled && !user) {
         if (!body.turnstileToken) {
-            return c.json<FindGameResponse>({ error: "invalid_captcha" });
+            return c.json<FindGameResponse>({ type: "error", error: "invalid_captcha" });
         }
 
         try {
             if (!(await verifyTurnsStile(body.turnstileToken, ip))) {
-                return c.json<FindGameResponse>({ error: "invalid_captcha" });
+                return c.json<FindGameResponse>({ type: "error", error: "invalid_captcha" });
             }
         } catch (err) {
             server.logger.error("/api/find_game: Failed verifying turnstile: ", err);
-            return c.json<FindGameResponse>({ error: "invalid_captcha" }, 500);
+            return c.json<FindGameResponse>({ type: "error", error: "invalid_captcha" }, 500);
         }
-    }
-
-    const mode = server.modes[body.gameModeIdx];
-    if (!mode || !mode.enabled) {
-        return c.json<FindGameResponse>({ error: "full" });
     }
 
     const playerData = await getFindGamePlayerData([
         {
-            token,
+            joinToken,
             userId: user?.id || null,
             ip,
         },
@@ -169,20 +179,15 @@ app.post("/api/find_game", validateParams(zFindGameBody), async (c) => {
     });
 
     if ("error" in data) {
-        return c.json(data);
+        return c.json<FindGameResponse>({ type: "error", error: data.error });
     }
 
     return c.json<FindGameResponse>({
-        res: [
-            {
-                zone: "",
-                data: token,
-                useHttps: data.useHttps,
-                hosts: data.hosts,
-                addrs: data.addrs,
-                gameId: data.gameId,
-            },
-        ],
+        type: "success",
+        res: {
+            joinToken,
+            urls: data.urls,
+        },
     });
 });
 
@@ -191,10 +196,10 @@ app.post("/api/report_error", rateLimitMiddleware(5, 60 * 1000), async (c) => {
 
     let stackTrace: string | undefined;
     if (
-        typeof content.data == "object" &&
-        "stacktrace" in content.data &&
-        typeof content.data.stacktrace == "string" &&
-        content.data.stacktrace
+        typeof content.data === "object"
+        && "stacktrace" in content.data
+        && typeof content.data.stacktrace === "string"
+        && content.data.stacktrace
     ) {
         stackTrace = `### Stacktrace:\n \`\`\`${content.data.stacktrace.replaceAll("`", "\\`")}\`\`\``;
         delete content.data.stacktrace;
@@ -238,6 +243,6 @@ new Cron("0 0 * * *", async () => {
     }
 });
 
-server.logger.info(`Survev API Server v${version} - GIT ${GIT_VERSION}`);
+server.logger.info(`Survev API Server v${pkgJson.version} - GIT ${GIT_VERSION}`);
 server.logger.info(`Listening on ${Config.apiServer.host}:${Config.apiServer.port}`);
 server.logger.info("Press Ctrl+C to exit.");

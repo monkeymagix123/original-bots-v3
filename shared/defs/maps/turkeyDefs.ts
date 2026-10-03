@@ -1,12 +1,12 @@
-import { util } from "../../utils/util";
-import { Main, type PartialMapDef } from "./baseDefs";
+import { util } from "../../utils/util.ts";
+import { Main, type PartialMapDef } from "./baseDefs.ts";
 
 const mapDef: PartialMapDef = {
     desc: {
         name: "Turkey",
         icon: "",
         buttonCss: "",
-        backgroundImg: "img/main_splash_turkey_01.png",
+        backgroundImg: "img/splashes/turkey.webp",
     },
     assets: {
         audio: [
@@ -24,8 +24,11 @@ const mapDef: PartialMapDef = {
             { name: "xp_drop_01", channel: "sfx" },
             { name: "xp_drop_02", channel: "sfx" },
             { name: "pumpkin_break_01", channel: "sfx" },
+            { name: "log_05", channel: "sfx" },
+            { name: "vault_change_03", channel: "sfx" },
+            { name: "watering_01", channel: "sfx" },
         ],
-        atlases: ["gradient", "loadout", "shared", "turkey"],
+        atlases: ["loadout", "shared", "turkey"],
     },
     biome: {
         colors: {

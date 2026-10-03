@@ -1,36 +1,23 @@
-import type { Atlas } from "../../shared/defs/mapDefs";
-import { BeachAtlas } from "./defs/beach";
-import { CobaltAtlas } from "./defs/cobalt";
-import { DesertAtlas } from "./defs/desert";
-import { FactionAtlas } from "./defs/faction";
-import { GradientAtlas } from "./defs/gradient";
-import { HalloweenAtlas } from "./defs/halloween";
-import { LoadoutAtlas } from "./defs/loadout";
-import { MainAtlas } from "./defs/main";
-import { PotatoAtlas } from "./defs/potato";
-import { SavannahAtlas } from "./defs/savannah";
-import { SharedAtlas } from "./defs/shared";
-import { SnowAtlas } from "./defs/snow";
-import { TurkeyAtlas } from "./defs/turkey";
-import { WoodsAtlas } from "./defs/woods";
+import type { Atlas } from "../../shared/defs/mapDefs.ts";
+import { BeachAtlas } from "./defs/beach.ts";
+import { CobaltAtlas } from "./defs/cobalt.ts";
+import { DesertAtlas } from "./defs/desert.ts";
+import { FactionAtlas } from "./defs/faction.ts";
+import { HalloweenAtlas } from "./defs/halloween.ts";
+import { LoadoutAtlas } from "./defs/loadout.ts";
+import { MainAtlas } from "./defs/main.ts";
+import { PotatoAtlas } from "./defs/potato.ts";
+import { SavannahAtlas } from "./defs/savannah.ts";
+import { SharedAtlas } from "./defs/shared.ts";
+import { SnowAtlas } from "./defs/snow.ts";
+import { TurkeyAtlas } from "./defs/turkey.ts";
+import { WoodsAtlas } from "./defs/woods.ts";
 
 export interface AtlasDef {
-    /**
-     * Some atlases have extra quality compression disabled (like loadout).
-     *
-     * The quality compression works by limiting the image to 256 colors
-     *
-     * Which doesn't work for some atlases like loadout, gradient, etc...
-     * since they have way more colors than the spritesheets with only map objects.
-     *
-     * This is what the original game did BTW, with this we get really similar (and small) file sizes.
-     */
-    compress: boolean;
     images: string[];
 }
 
 export const Atlases: Record<Atlas, AtlasDef> = {
-    gradient: GradientAtlas,
     loadout: LoadoutAtlas,
     shared: SharedAtlas,
     main: MainAtlas,

@@ -1,6 +1,6 @@
-import { type Vec2, v2 } from "../../../../shared/utils/v2";
-import type { BotSkillProfile } from "./botDifficulty";
-import type { BotRandom } from "./botRandom";
+import { v2, type Vec2 } from "../../../../shared/utils/v2.ts";
+import type { BotSkillProfile } from "./botDifficulty.ts";
+import type { BotRandom } from "./botRandom.ts";
 
 export interface AimResult {
     direction: Vec2;
@@ -76,8 +76,8 @@ export class BotAimController {
                     // If the old maneuver has already persisted through its
                     // recognition window, accept it before starting the new one.
                     if (
-                        this.velocityReactionRemaining <= dt + 1e-9 &&
-                        this.pendingVelocity
+                        this.velocityReactionRemaining <= dt + 1e-9
+                        && this.pendingVelocity
                     ) {
                         this.recognizedVelocity = v2.copy(this.pendingVelocity);
                     }
@@ -85,10 +85,9 @@ export class BotAimController {
                     newVelocityChange = true;
                     this.pendingVelocity = v2.copy(targetVelocity);
                 } else {
-                    this.velocityReactionRemaining =
-                        this.velocityReactionRemaining <= dt + 1e-9
-                            ? 0
-                            : this.velocityReactionRemaining - dt;
+                    this.velocityReactionRemaining = this.velocityReactionRemaining <= dt + 1e-9
+                        ? 0
+                        : this.velocityReactionRemaining - dt;
                     if (this.velocityReactionRemaining === 0) {
                         this.recognizedVelocity = v2.copy(targetVelocity);
                         this.pendingVelocity = undefined;
@@ -134,17 +133,14 @@ export class BotAimController {
         // across different input update rates.
         const pressureScale = 1 + (moving ? 0.45 : 0) + (underPressure ? 0.5 : 0);
         const distanceScale = 0.65 + Math.min(distance, 45) / 45;
-        const desiredSigma =
-            this.profile.aimErrorRadians * 0.45 * pressureScale * distanceScale;
+        const desiredSigma = this.profile.aimErrorRadians * 0.45 * pressureScale * distanceScale;
         const decay = Math.exp(-2.4 * dt);
-        this.error =
-            this.error * decay +
-            this.rng.normal() * desiredSigma * Math.sqrt(1 - decay * decay);
+        this.error = this.error * decay
+            + this.rng.normal() * desiredSigma * Math.sqrt(1 - decay * decay);
 
         const desiredAngle = idealAngle + this.error;
         const delta = wrapAngle(desiredAngle - this.angle);
-        const maxCorrection =
-            this.profile.maxAimSpeed * (0.55 + this.profile.aimSpeed * 0.45) * dt;
+        const maxCorrection = this.profile.maxAimSpeed * (0.55 + this.profile.aimSpeed * 0.45) * dt;
         this.angle += Math.max(-maxCorrection, Math.min(maxCorrection, delta));
         this.angle = wrapAngle(this.angle);
 

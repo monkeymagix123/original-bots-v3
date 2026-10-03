@@ -1,6 +1,6 @@
-import { earcut } from "./earcut";
-import { assert } from "./util";
-import { type Vec2, v2 } from "./v2";
+import { earcut } from "./earcut.js";
+import { assert } from "./util.ts";
+import { v2, type Vec2 } from "./v2.ts";
 
 const kEpsilon = 0.000001;
 
@@ -53,10 +53,6 @@ export const math = {
         return math.clamp((t - a) / (b - a), 0.0, 1.0);
     },
 
-    v2lerp(t: number, a: Vec2, b: Vec2) {
-        return v2.create(math.lerp(t, a.x, b.x), math.lerp(t, a.y, b.y));
-    },
-
     smoothstep(v: number, a: number, b: number) {
         const t = math.clamp((v - a) / (b - a), 0.0, 1.0);
         return t * t * (3.0 - 2.0 * t);
@@ -79,8 +75,39 @@ export const math = {
         return Math.pow(2, (e - 1) * 10);
     },
 
+    easeInSine(x: number): number {
+        return 1 - Math.cos((x * Math.PI) / 2);
+    },
+
+    easeOutSine(x: number): number {
+        return Math.sin((x * Math.PI) / 2);
+    },
+
+    easeInOutSine(x: number): number {
+        return -(Math.cos(Math.PI * x) - 1) / 2;
+    },
+
+    easeOutQuad(x: number): number {
+        return 1 - (1 - x) * (1 - x);
+    },
+
     easeOutQuart(e: number) {
         return 1 - Math.pow(1 - e, 4);
+    },
+
+    easeOutBounce(x: number): number {
+        const n1 = 7.5625;
+        const d1 = 2.75;
+
+        if (x < 1 / d1) {
+            return n1 * x * x;
+        } else if (x < 2 / d1) {
+            return n1 * (x -= 1.5 / d1) * x + 0.75;
+        } else if (x < 2.5 / d1) {
+            return n1 * (x -= 2.25 / d1) * x + 0.9375;
+        } else {
+            return n1 * (x -= 2.625 / d1) * x + 0.984375;
+        }
     },
 
     remap(v: number, a: number, b: number, x: number, y: number) {
@@ -240,8 +267,7 @@ export const math = {
             const xj = poly[j].x;
             const yj = poly[j].y;
 
-            const intersect =
-                yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+            const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
             if (intersect) {
                 inside = !inside;
             }
@@ -304,44 +330,6 @@ export const math = {
             p0: v2.add(pos, v2.rotate(p0, ang)),
             p1: v2.add(pos, v2.rotate(p1, ang)),
         };
-    },
-
-    // http://paulbourke.net/geometry/pointlineplane/javascript.txt
-    lineIntersects(
-        x1: number,
-        y1: number,
-        x2: number,
-        y2: number,
-        x3: number,
-        y3: number,
-        x4: number,
-        y4: number,
-    ) {
-        // Check if none of the lines are of length 0
-        if ((x1 === x2 && y1 === y2) || (x3 === x4 && y3 === y4)) {
-            return false;
-        }
-
-        const denominator = (y4 - y3) * (x2 - x1) - (x4 - x3) * (y2 - y1);
-
-        // Lines are parallel
-        if (denominator === 0) {
-            return false;
-        }
-
-        const ua = ((x4 - x3) * (y1 - y3) - (y4 - y3) * (x1 - x3)) / denominator;
-        const ub = ((x2 - x1) * (y1 - y3) - (y2 - y1) * (x1 - x3)) / denominator;
-
-        // is the intersection along the segments
-        if (ua < 0 || ua > 1 || ub < 0 || ub > 1) {
-            return false;
-        }
-
-        // Return a object with the x and y coordinates of the intersection
-        const x = x1 + ua * (x2 - x1);
-        const y = y1 + ua * (y2 - y1);
-
-        return { x, y };
     },
 
     // functions not copied from surviv

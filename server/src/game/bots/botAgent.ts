@@ -1,23 +1,23 @@
-import { GameObjectDefs } from "../../../../shared/defs/gameObjectDefs";
-import type { BulletDef } from "../../../../shared/defs/gameObjects/bulletDefs";
-import type { GunDef } from "../../../../shared/defs/gameObjects/gunDefs";
-import type { MeleeDef } from "../../../../shared/defs/gameObjects/meleeDefs";
-import { PerkProperties } from "../../../../shared/defs/gameObjects/perkDefs";
-import { GameConfig } from "../../../../shared/gameConfig";
-import { InputMsg } from "../../../../shared/net/inputMsg";
-import { ObjectType } from "../../../../shared/net/objectSerializeFns";
-import { type Vec2, v2 } from "../../../../shared/utils/v2";
-import { Config } from "../../config";
-import type { Game } from "../game";
-import type { Player } from "../objects/player";
-import { BotAimController } from "./botAim";
-import type { BotPersonality } from "./botBrain";
-import { BotDecisionMaker } from "./botDecision";
-import type { BotSkillProfile } from "./botDifficulty";
-import { BotMovementController } from "./botMovement";
-import { BotPerception } from "./botPerception";
-import { BotRandom } from "./botRandom";
-import { type BotTelemetrySnapshot, createBotTelemetry } from "./botTelemetry";
+import type { BulletDef } from "../../../../shared/defs/gameObjects/bulletDefs.ts";
+import type { GunDef } from "../../../../shared/defs/gameObjects/gunDefs.ts";
+import type { MeleeDef } from "../../../../shared/defs/gameObjects/meleeDefs.ts";
+import { PerkProperties } from "../../../../shared/defs/gameObjects/perkDefs.ts";
+import { GameObjectDefs } from "../../../../shared/defs/register.ts";
+import { GameConfig } from "../../../../shared/gameConfig.ts";
+import { InputMsg } from "../../../../shared/net/inputMsg.ts";
+import { ObjectType } from "../../../../shared/net/objectSerializeFns.ts";
+import { v2, type Vec2 } from "../../../../shared/utils/v2.ts";
+import { Config } from "../../config.ts";
+import type { Game } from "../game.ts";
+import type { Player } from "../objects/player.ts";
+import { BotAimController } from "./botAim.ts";
+import type { BotPersonality } from "./botBrain.ts";
+import { BotDecisionMaker } from "./botDecision.ts";
+import type { BotSkillProfile } from "./botDifficulty.ts";
+import { BotMovementController } from "./botMovement.ts";
+import { BotPerception } from "./botPerception.ts";
+import { BotRandom } from "./botRandom.ts";
+import { type BotTelemetrySnapshot, createBotTelemetry } from "./botTelemetry.ts";
 
 export interface BotAgentOptions {
     profile: BotSkillProfile;
@@ -114,15 +114,12 @@ export class BotAgent {
                 v2.sub(visibleTarget.position, this.player.pos),
                 aim.direction,
             );
-            const projectedBarrel =
-                weapon.barrelLength * Math.max(0, v2.dot(aim.direction, towardTarget));
-            const triggerReach =
-                weapon.triggerReach - weapon.barrelLength + projectedBarrel;
+            const projectedBarrel = weapon.barrelLength * Math.max(0, v2.dot(aim.direction, towardTarget));
+            const triggerReach = weapon.triggerReach - weapon.barrelLength + projectedBarrel;
             const targetObject = this.game.objectRegister?.getById(visibleTarget.id);
-            const targetRadius =
-                targetObject?.__type === ObjectType.Player
-                    ? targetObject.rad
-                    : GameConfig.player.radius;
+            const targetRadius = targetObject?.__type === ObjectType.Player
+                ? targetObject.rad
+                : GameConfig.player.radius;
             let inReach = visibleTarget.distance <= triggerReach;
             if (weapon.meleeDef) {
                 const offset = v2.add(
@@ -133,15 +130,13 @@ export class BotAgent {
                     this.player.pos,
                     v2.rotate(offset, Math.atan2(aim.direction.y, aim.direction.x)),
                 );
-                inReach =
-                    v2.distance(meleeCenter, visibleTarget.position) <=
-                    weapon.meleeDef.attack.rad + targetRadius;
+                inReach = v2.distance(meleeCenter, visibleTarget.position)
+                    <= weapon.meleeDef.attack.rad + targetRadius;
             }
-            msg.shootStart =
-                decision.wantsToShoot &&
-                decision.target?.id === visibleTarget.id &&
-                inReach &&
-                aim.readyToFire;
+            msg.shootStart = decision.wantsToShoot
+                && decision.target?.id === visibleTarget.id
+                && inReach
+                && aim.readyToFire;
             msg.shootHold = msg.shootStart;
             this.telemetry.aimError = aim.errorRadians;
             this.telemetry.reactionRemaining = aim.reactionRemaining;
@@ -157,10 +152,10 @@ export class BotAgent {
         }
 
         if (
-            this.player.actionType === GameConfig.Action.UseItem &&
-            decision.state !== "healing" &&
-            visibleTarget &&
-            visibleTarget.distance <= weapon.maxDistance
+            this.player.actionType === GameConfig.Action.UseItem
+            && decision.state !== "healing"
+            && visibleTarget
+            && visibleTarget.distance <= weapon.maxDistance
         ) {
             msg.addInput(GameConfig.Input.Cancel);
         }
@@ -172,9 +167,9 @@ export class BotAgent {
         }
         if (movement.useDoor) msg.addInput(GameConfig.Input.Use);
         if (
-            decision.state === "looting" &&
-            decision.destination &&
-            v2.distance(this.player.pos, decision.destination) < 3.8
+            decision.state === "looting"
+            && decision.destination
+            && v2.distance(this.player.pos, decision.destination) < 3.8
         ) {
             msg.addInput(GameConfig.Input.Loot);
         }
@@ -184,10 +179,8 @@ export class BotAgent {
 
         this.telemetry.state = decision.state;
         this.telemetry.targetId = decision.target?.id;
-        this.telemetry.destination =
-            decision.destination && v2.copy(decision.destination);
-        this.telemetry.perceivedThreats =
-            perceived.visibleEnemies.length + perceived.rememberedEnemies.length;
+        this.telemetry.destination = decision.destination && v2.copy(decision.destination);
+        this.telemetry.perceivedThreats = perceived.visibleEnemies.length + perceived.rememberedEnemies.length;
         this.telemetry.transitionReason = decision.transitionReason;
         this.telemetry.actionReason = decision.reason;
         this.telemetry.decisions++;
@@ -200,8 +193,8 @@ export class BotAgent {
             this.telemetry.engagementDistanceSamples++;
             const count = this.telemetry.engagementDistanceSamples;
             this.telemetry.averageEngagementDistance +=
-                (visibleTarget.distance - this.telemetry.averageEngagementDistance) /
-                count;
+                (visibleTarget.distance - this.telemetry.averageEngagementDistance)
+                / count;
         }
         if (movement.changedDirection) this.telemetry.directionChanges++;
         if (movement.stuckRecovered) this.telemetry.stuckEvents++;
@@ -229,10 +222,10 @@ export class BotAgent {
         barrelLength: number;
         meleeDef?: MeleeDef;
     } {
-        const def = GameObjectDefs[this.player.activeWeapon];
+        const def = GameObjectDefs.typeToDefSafe(this.player.activeWeapon);
         if (def?.type === "gun") {
             const gun = def as GunDef;
-            const bullet = GameObjectDefs[gun.bulletType] as BulletDef | undefined;
+            const bullet = GameObjectDefs.typeToDefSafe(gun.bulletType) as BulletDef | undefined;
             const maxDistance = bullet?.distance ?? 100;
             let distanceMult = 1;
             if (gun.ammo === "9mm" && this.player.hasPerk?.("bonus_9mm")) {
@@ -241,20 +234,20 @@ export class BotAgent {
             if (this.player.hasPerk?.("high_velocity")) {
                 distanceMult *= PerkProperties.high_velocity.distanceMult;
             }
-            const explosion = bullet?.onHit ? GameObjectDefs[bullet.onHit] : undefined;
+            const explosion = bullet?.onHit ? GameObjectDefs.typeToDefSafe(bullet.onHit) : undefined;
             const splashReach = explosion?.type === "explosion" ? explosion.rad.max : 0;
             // The bullet starts at the muzzle, ahead of the player's center.
             // Collision radius and bullet distance jitter allow near-edge hits.
-            const triggerReach =
-                maxDistance * distanceMult * (1 + Math.max(0, bullet?.variance ?? 0)) +
-                (bullet?.noDistAdj ? 0 : 1) +
-                gun.barrelLength +
-                GameConfig.player.radius +
-                splashReach;
+            const triggerReach = maxDistance * distanceMult * (1 + Math.max(0, bullet?.variance ?? 0))
+                + (bullet?.noDistAdj ? 0 : 1)
+                + gun.barrelLength
+                + GameConfig.player.radius
+                + splashReach;
             let preferredDistance = Math.max(8, Math.min(34, maxDistance * 0.14));
             if (gun.bulletCount > 1) preferredDistance = Math.min(preferredDistance, 11);
-            if (gun.fireDelay >= 0.65)
+            if (gun.fireDelay >= 0.65) {
                 preferredDistance = Math.max(preferredDistance, 25);
+            }
             return {
                 preferredDistance,
                 projectileSpeed: bullet?.speed ?? 100,
@@ -268,8 +261,7 @@ export class BotAgent {
                 def.attack.offset,
                 v2.create((this.player.scale ?? 1) - 1, 0),
             );
-            const maxDistance =
-                v2.length(offset) + def.attack.rad + GameConfig.player.radius;
+            const maxDistance = v2.length(offset) + def.attack.rad + GameConfig.player.radius;
             return {
                 preferredDistance: 2.25,
                 projectileSpeed: 0,

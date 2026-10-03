@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { insertPlayerInfoId } from "../../client/src/objects/playerInfoIds";
+import { insertPlayerInfoId } from "../../client/src/objects/playerInfoIds.ts";
 
 test("repeated player-info updates keep one sorted ID per player", () => {
     const ids: number[] = [];

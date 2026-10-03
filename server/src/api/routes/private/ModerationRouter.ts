@@ -1,8 +1,9 @@
-import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, lt, ne } from "drizzle-orm";
 import { Hono } from "hono";
+import { streamText } from "hono/streaming";
+import { createHash } from "node:crypto";
 import { z } from "zod";
-import { MapId, TeamModeToString } from "../../../../../shared/defs/types/misc";
+import { GameConfig } from "../../../../../shared/gameConfig.ts";
 import {
     zBanAccountParams,
     zBanIpParams,
@@ -14,26 +15,20 @@ import {
     zResetStatsParams,
     zSetAccountNameParams,
     zSetMatchDataNameParams,
+    zSpectateGameParams,
     zUnbanAccountParams,
     zUnbanIpParams,
-} from "../../../../../shared/types/moderation";
-import { util } from "../../../../../shared/utils/util";
-import { Config } from "../../../config";
-import { validateUserName } from "../../../utils/serverHelpers";
-import type { SaveGameBody } from "../../../utils/types";
-import { server } from "../../apiServer";
-import { databaseEnabledMiddleware, validateParams } from "../../auth/middleware";
-import { db } from "../../db";
-import {
-    bannedIpsTable,
-    ipLogsTable,
-    itemsTable,
-    matchDataTable,
-    userPassTable,
-    usersTable,
-} from "../../db/schema";
-import { sanitizeSlug } from "../user/auth/authUtils";
-import { incrementPassXp } from "./passXp";
+} from "../../../../../shared/types/moderation.ts";
+import { util } from "../../../../../shared/utils/util.ts";
+import { Config } from "../../../config.ts";
+import { validateUserName } from "../../../utils/badWords.ts";
+import type { ModRouterSpectateGameRes, SaveGameBody, SpectateGamePrivateRes } from "../../../utils/types.ts";
+import { server } from "../../apiServer.ts";
+import { databaseEnabledMiddleware, validateParams } from "../../auth/middleware.ts";
+import { db } from "../../db/index.ts";
+import { bannedIpsTable, ipLogsTable, itemsTable, matchDataTable, userPassTable, usersTable } from "../../db/schema.ts";
+import { sanitizeSlug } from "../user/auth/authUtils.ts";
+import { incrementPassXp } from "./passXp.ts";
 
 export const ModerationRouter = new Hono()
     .use(databaseEnabledMiddleware)
@@ -230,24 +225,6 @@ export const ModerationRouter = new Hono()
             .execute();
         return c.json({ message: `IP ${encodedIp} has been unbanned.` }, 200);
     })
-    /**
-     * @deprecated
-     */
-    .post(
-        "/is_ip_banned",
-        validateParams(
-            z.object({
-                ip: z.string(),
-            }),
-        ),
-        async (c) => {
-            const { ip } = c.req.valid("json");
-
-            return c.json({
-                banned: (await isBanned(ip, false)) !== undefined,
-            });
-        },
-    )
     .post("/get_player_ip", validateParams(zGetPlayerIpParams), async (c) => {
         const { name, use_account_slug, game_id } = c.req.valid("json");
 
@@ -309,8 +286,8 @@ export const ModerationRouter = new Hono()
 
         const prettyResult = result.map((data) => ({
             ...data,
-            teamMode: TeamModeToString[data.teamMode],
-            mapId: MapId[data.mapId],
+            teamMode: GameConfig.TeamModeToString[data.teamMode],
+            mapId: GameConfig.MapId[data.mapId],
         }));
 
         return c.json(prettyResult, 200);
@@ -532,6 +509,57 @@ export const ModerationRouter = new Hono()
             },
             200,
         );
+    })
+    .post("spectate_player", validateParams(zSpectateGameParams), async (c) => {
+        const { filter } = c.req.valid("json");
+
+        if (filter.type === "user_id") {
+            // convert the slug to user id
+            const user = await db.query.usersTable.findFirst({
+                where: eq(usersTable.slug, filter.value),
+                columns: {
+                    id: true,
+                },
+            });
+            if (!user) {
+                return c.json({
+                    message: "No user found with that slug.",
+                });
+            }
+            filter.value = user.id;
+        }
+
+        return streamText(c, async (stream) => {
+            const promises: Promise<unknown>[] = [];
+
+            const count = Object.keys(server.regions).length;
+            let requestsDone = 0;
+            for (const regionId in server.regions) {
+                const region = server.regions[regionId];
+
+                const promise = region.fetch<SpectateGamePrivateRes>("api/spectate_game", {
+                    filter: filter,
+                });
+                promises.push(promise);
+
+                promise.then((res) => {
+                    requestsDone++;
+
+                    stream.writeln(JSON.stringify(
+                        {
+                            region: regionId,
+                            done: requestsDone === count,
+                            ...(res || { players: [] }),
+                        } satisfies ModRouterSpectateGameRes,
+                    ));
+                }).catch((err) => {
+                    console.error(err);
+                });
+            }
+
+            await Promise.all(promises);
+            stream.close();
+        });
     });
 
 async function banAccount(userId: string, banReason: string, executorId: string) {

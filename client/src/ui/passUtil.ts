@@ -1,4 +1,4 @@
-import { PassDefs } from "../../../shared/defs/gameObjects/passDefs";
+import { PassDefs } from "../../../shared/defs/gameObjects/passDefs.ts";
 
 const passMaxLevel = 99;
 

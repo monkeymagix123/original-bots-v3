@@ -1,25 +1,26 @@
 import $ from "jquery";
-import { GameConfig } from "../../../shared/gameConfig";
-import * as net from "../../../shared/net/net";
-import type { FindGameMatchData } from "../../../shared/types/api";
+import { GameConfig } from "../../../shared/gameConfig.ts";
+import * as net from "../../../shared/net/net.ts";
+import type { FindGameMatchData } from "../../../shared/types/api.ts";
 import type {
     RoomData,
     ServerToClientTeamMsg,
+    TeamErrorMsg,
     TeamMenuErrorType,
     TeamPlayGameMsg,
     TeamStateMsg,
-} from "../../../shared/types/team";
-import { api } from "../api";
-import type { AudioManager } from "../audioManager";
-import type { ConfigManager } from "../config";
-import { device } from "../device";
-import { helpers } from "../helpers";
-import type { PingTest } from "../pingTest";
-import { SDK } from "../sdk/sdk";
-import type { SiteInfo } from "../siteInfo";
-import type { Localization } from "./localization";
+} from "../../../shared/types/team.ts";
+import { api } from "../api.ts";
+import type { AudioManager } from "../audioManager.ts";
+import type { ConfigManager } from "../config.ts";
+import { device } from "../device.ts";
+import { helpers } from "../helpers.ts";
+import type { PingTest } from "../pingTest.ts";
+import { SDK } from "../sdk/sdk.ts";
+import type { SiteInfo } from "../siteInfo.ts";
+import type { Localization } from "./localization.ts";
 
-function errorTypeToString(type: string, localization: Localization) {
+function errorTypeToString(type: TeamMenuErrorType, localization: Localization) {
     const typeMap = {
         join_full: localization.translate("index-team-is-full"),
         join_not_found: localization.translate("index-failed-joining-team"),
@@ -59,6 +60,8 @@ export class TeamMenu {
     ws: WebSocket | null = null;
     keepAliveTimeout = 0;
 
+    gameError: string | undefined = undefined;
+
     // Ui state
     playerData = {};
     roomData = {} as RoomData;
@@ -84,7 +87,7 @@ export class TeamMenu {
         public localization: Localization,
         public audioManager: AudioManager,
         public joinGameCb: (data: FindGameMatchData) => void,
-        public leaveCb: (err: string) => void,
+        public leaveCb: (err?: string) => void,
     ) {
         // Listen for ui modifications
         this.serverSelect.on("change", () => {
@@ -127,8 +130,8 @@ export class TeamMenu {
                 {
                     queue: false,
                     duration: 300,
-                    complete: function () {
-                        $(this).fadeOut(250, function () {
+                    complete: function() {
+                        $(this).fadeOut(250, function() {
                             $(this).remove();
                         });
                     },
@@ -179,14 +182,13 @@ export class TeamMenu {
     connect(create: boolean, roomUrl: string) {
         if (!this.active || roomUrl !== this.roomData.roomUrl) {
             const roomHost = api.resolveRoomHost();
-            const url = `w${
-                window.location.protocol === "https:" ? "ss" : "s"
-            }://${roomHost}/team_v2`;
+            const url = `w${window.location.protocol === "https:" ? "ss" : "s"}://${roomHost}/team_v2`;
             this.active = true;
             this.joined = false;
             this.create = create;
             this.joiningGame = false;
             this.editingName = false;
+            this.gameError = undefined;
 
             // Load properties from config
             this.playerData = {
@@ -198,14 +200,14 @@ export class TeamMenu {
                 gameModeIdx: this.config.get("gameModeIdx")!,
                 autoFill: this.config.get("teamAutoFill")!,
                 findingGame: false,
-                lastError: "",
+                lastError: undefined,
             } as RoomData;
             this.displayedInvalidProtocolModal = false;
 
             this.refreshUi();
 
             if (this.ws) {
-                this.ws.onclose = function () {};
+                this.ws.onclose = function() {};
                 this.ws.close();
                 this.ws = null;
             }
@@ -216,13 +218,13 @@ export class TeamMenu {
                     this.ws?.close();
                 };
                 this.ws.onclose = () => {
-                    let errMsg = "";
+                    let errMsg: TeamMenuErrorType | undefined = undefined;
                     if (!this.joiningGame) {
                         errMsg = this.joined
                             ? "lost_conn"
                             : this.create
-                              ? "create_failed"
-                              : "join_failed";
+                            ? "create_failed"
+                            : "join_failed";
                     }
                     this.leave(errMsg);
                 };
@@ -251,7 +253,7 @@ export class TeamMenu {
         }
     }
 
-    leave(errType = "") {
+    leave(errType?: TeamMenuErrorType) {
         if (this.active) {
             this.ws?.close();
             this.ws = null;
@@ -267,7 +269,7 @@ export class TeamMenu {
                 this.config.set("region", this.roomData.region);
             }
             let errTxt = "";
-            if (errType && errType != "") {
+            if (errType) {
                 errTxt = errorTypeToString(errType, this.localization);
             }
             this.leaveCb(errTxt);
@@ -276,10 +278,12 @@ export class TeamMenu {
         }
     }
 
-    onGameComplete() {
+    onGameComplete(errMessage?: string) {
         if (this.active) {
             this.joiningGame = false;
             this.sendMessage("gameComplete");
+
+            this.gameError = errMessage;
         }
     }
 
@@ -323,7 +327,7 @@ export class TeamMenu {
                 this.leave("kicked");
                 break;
             case "error":
-                this.leave((data as { type: string }).type);
+                this.leave((data as TeamErrorMsg["data"]).type);
         }
     }
 
@@ -372,12 +376,13 @@ export class TeamMenu {
                 this.sendMessage("playGame", matchArgs);
             });
             this.roomData.findingGame = true;
+            this.gameError = undefined;
             this.refreshUi();
         }
     }
 
     refreshUi() {
-        const setButtonState = function (
+        const setButtonState = function(
             el: JQuery<HTMLElement>,
             selected: boolean,
             enabled: boolean,
@@ -402,14 +407,15 @@ export class TeamMenu {
         $("#social-share-block").css("display", this.active ? "none" : "block");
 
         // Error text
-        const hasError = this.roomData.lastError != "";
-        const errorTxt = errorTypeToString(this.roomData.lastError, this.localization);
-        this.serverWarning.css("opacity", hasError ? 1 : 0);
-        this.serverWarning.html(errorTxt);
+        const errorTxt = this.roomData.lastError
+            ? errorTypeToString(this.roomData.lastError!, this.localization)
+            : this.gameError;
+        this.serverWarning.css("opacity", errorTxt ? 1 : 0);
+        this.serverWarning.html(errorTxt || "");
 
         if (
-            this.roomData.lastError == "find_game_invalid_protocol" &&
-            !this.displayedInvalidProtocolModal
+            this.roomData.lastError == "find_game_invalid_protocol"
+            && !this.displayedInvalidProtocolModal
         ) {
             $("#modal-refresh").fadeIn(200);
             this.displayedInvalidProtocolModal = true;
@@ -493,7 +499,7 @@ export class TeamMenu {
             // Play button
             this.playBtn.html(
                 this.roomData.findingGame || this.joiningGame
-                    ? '<div class="ui-spinner"></div>'
+                    ? "<div class=\"ui-spinner\"></div>"
                     : this.playBtn.attr("data-label")!,
             );
 
@@ -522,9 +528,11 @@ export class TeamMenu {
 
             if (this.isLeader) {
                 waitReason.html(
-                    `${this.localization.translate(
-                        "index-game-in-progress",
-                    )}<span> ...</span>`,
+                    `${
+                        this.localization.translate(
+                            "index-game-in-progress",
+                        )
+                    }<span> ...</span>`,
                 );
 
                 const showWaitMessage = playersInGame && !this.joiningGame;
@@ -533,21 +541,27 @@ export class TeamMenu {
             } else {
                 if (this.roomData.findingGame || this.joiningGame) {
                     waitReason.html(
-                        `<div class="ui-spinner" style="margin-right:16px"></div>${this.localization.translate(
-                            "index-joining-game",
-                        )}<span> ...</span>`,
+                        `<div class="ui-spinner" style="margin-right:16px"></div>${
+                            this.localization.translate(
+                                "index-joining-game",
+                            )
+                        }<span> ...</span>`,
                     );
                 } else if (playersInGame) {
                     waitReason.html(
-                        `${this.localization.translate(
-                            "index-game-in-progress",
-                        )}<span> ...</span>`,
+                        `${
+                            this.localization.translate(
+                                "index-game-in-progress",
+                            )
+                        }<span> ...</span>`,
                     );
                 } else {
                     waitReason.html(
-                        `${this.localization.translate(
-                            "index-waiting-for-leader",
-                        )}<span> ...</span>`,
+                        `${
+                            this.localization.translate(
+                                "index-waiting-for-leader",
+                            )
+                        }<span> ...</span>`,
                     );
                 }
                 waitReason.css("display", "block");
@@ -594,18 +608,18 @@ export class TeamMenu {
                         "data-playerid": playerStatus.playerId,
                     }),
                 );
-                let n: JQuery<HTMLInputElement> | null = null;
-                let c = null;
+                let nameInput: JQuery<HTMLInputElement> | null = null;
+                let submitButton: JQuery<HTMLDivElement> | null = null;
                 if (this.editingName && playerStatus.self) {
-                    n = $("<input/>", {
+                    nameInput = $("<input/>", {
                         type: "text",
                         tabindex: 0,
                         class: "name menu-option name-text name-self-input",
                         maxLength: net.Constants.PlayerNameMaxLen,
                     });
-                    n.val(playerStatus.name);
-                    const m = () => {
-                        const name = helpers.sanitizeNameInput(n?.val()!);
+                    nameInput.val(playerStatus.name);
+                    const submit = () => {
+                        const name = helpers.sanitizeNameInput(nameInput!.val() as string);
                         playerStatus.name = name;
                         this.config.set("playerName", name);
                         this.sendMessage("changeName", {
@@ -614,23 +628,23 @@ export class TeamMenu {
                         this.editingName = false;
                         this.refreshUi();
                     };
-                    const h = () => {
+                    const abortEditing = () => {
                         this.editingName = false;
                         this.refreshUi();
                     };
-                    n.on("keydown", (e) => {
+                    nameInput.on("keydown", (e) => {
                         if (e.which === 13) {
-                            m();
+                            submit();
                             return false;
                         }
                     });
-                    n.on("blur", h);
-                    member.append(n);
-                    c = $("<div/>", {
+                    nameInput.on("blur", abortEditing);
+                    member.append(nameInput);
+                    submitButton = $("<div/>", {
                         class: "icon icon-submit-name-change",
                     });
-                    c.on("click", m);
-                    c.on("mousedown", (e) => {
+                    submitButton.on("click", submit);
+                    submitButton.on("mousedown", (e) => {
                         e.preventDefault();
                         e.stopPropagation();
                     });
@@ -656,8 +670,8 @@ export class TeamMenu {
                     }
                     member.append(nameDiv);
                 }
-                if (c) {
-                    member.append(c);
+                if (submitButton) {
+                    member.append(submitButton);
                 } else {
                     member.append(
                         $("<div/>", {
@@ -666,7 +680,7 @@ export class TeamMenu {
                     );
                 }
                 teamMembers.append(member);
-                n?.trigger("focus");
+                nameInput?.trigger("focus");
             }
 
             $(".icon-kick", teamMembers).on("click", (e) => {
@@ -682,10 +696,10 @@ export class TeamMenu {
             });
             const playJoinSound = localPlayer && !localPlayer.inGame;
             if (
-                !document.hasFocus() &&
-                this.prevPlayerCount < this.players.length &&
-                this.players.length > 1 &&
-                playJoinSound
+                !document.hasFocus()
+                && this.prevPlayerCount < this.players.length
+                && this.players.length > 1
+                && playJoinSound
             ) {
                 this.audioManager.playSound("notification_join_01", {
                     channel: "ui",

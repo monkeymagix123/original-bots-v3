@@ -1,10 +1,10 @@
-import { type DeepPartial, util } from "../../utils/util";
-import type { Vec2 } from "../../utils/v2";
+import { FactionTeam } from "../../gameConfig.ts";
+import { type DeepPartial, util } from "../../utils/util.ts";
+import type { Vec2 } from "../../utils/v2.ts";
+import type { BaseWeaponDef } from "./itemTypes.ts";
 
-export interface GunDef {
-    readonly type: "gun";
-    name: string;
-    quality?: number;
+export interface GunDef extends BaseWeaponDef {
+    type: "gun";
     fireMode: "auto" | "single" | "burst";
     caseTiming: "shoot" | "reload";
     ammo: string;
@@ -28,16 +28,6 @@ export interface GunDef {
         equip: number;
         attack: number;
     };
-    lootImg: {
-        sprite: string;
-        tint: number;
-        border: string;
-        borderTint: number;
-        scale: number;
-        innerScale?: number;
-        rot?: number;
-        mirror?: boolean;
-    };
     worldImg: {
         sprite: string;
         scale: Vec2;
@@ -58,6 +48,7 @@ export interface GunDef {
         shellOffsetY?: number;
         shellForward?: number;
         shellReverse?: boolean;
+        casing?: string;
     };
     sound: {
         shoot: string;
@@ -68,7 +59,7 @@ export interface GunDef {
         cycle?: string;
         pull?: string;
         shootLast?: string;
-        shootTeam?: Record<string, string>;
+        shootTeam?: Record<FactionTeam, string>;
         shootAlt?: string;
         fallOff?: number;
         reloadAlt?: string;
@@ -78,8 +69,6 @@ export interface GunDef {
     pistol?: boolean;
     dualOffset?: number;
     ammoInfinite?: boolean;
-    noPotatoSwap?: boolean;
-    noDrop?: boolean;
     burstDelay?: number;
     burstCount?: number;
     dualWieldType?: string;
@@ -99,11 +88,10 @@ export interface GunDef {
     reloadTimeAlt?: number;
     toMouseHit?: boolean;
     burstSounds?: number;
-    perk?: string;
 }
 
 function defineGunSkin(baseType: string, params: DeepPartial<GunDef>): GunDef {
-    return util.mergeDeep({}, BaseDefs[baseType], params);
+    return util.mergeDeep({}, BaseDefs[baseType], { baseType }, params);
 }
 
 export const BaseDefs: Record<string, GunDef> = {
@@ -214,8 +202,8 @@ export const BaseDefs: Record<string, GunDef> = {
         extendedClip: 40,
         extendedReload: 40,
         reloadTime: 1.9,
-        fireDelay: 0.35,
-        burstDelay: 0.07,
+        fireDelay: 0.3,
+        burstDelay: 0.06,
         switchDelay: 0.75,
         barrelLength: 2.7,
         barrelOffset: 0,
@@ -413,7 +401,7 @@ export const BaseDefs: Record<string, GunDef> = {
         shotSpread: 2,
         bulletCount: 1,
         bulletType: "bullet_vss",
-        headshotMult: 1.75,
+        headshotMult: 1.5,
         speed: { equip: 0, attack: 0 },
         lootImg: {
             sprite: "loot-weapon-vss.img",
@@ -453,7 +441,7 @@ export const BaseDefs: Record<string, GunDef> = {
         extendedReload: 35,
         reloadTime: 2.3,
         fireDelay: 0.35,
-        burstDelay: 0.07,
+        burstDelay: 0.05,
         switchDelay: 0.75,
         barrelLength: 3.1,
         barrelOffset: 0,
@@ -606,7 +594,7 @@ export const BaseDefs: Record<string, GunDef> = {
         shotSpread: 1,
         bulletCount: 1,
         bulletType: "bullet_mk12",
-        headshotMult: 1.75,
+        headshotMult: 1.5,
         speed: { equip: 0, attack: 0 },
         lootImg: {
             sprite: "loot-weapon-mk12.img",
@@ -653,7 +641,7 @@ export const BaseDefs: Record<string, GunDef> = {
         shotSpread: 1,
         bulletCount: 1,
         bulletType: "bullet_l86",
-        headshotMult: 1.75,
+        headshotMult: 1.5,
         speed: { equip: 0, attack: 0 },
         lootImg: {
             sprite: "loot-weapon-l86.img",
@@ -1650,7 +1638,7 @@ export const BaseDefs: Record<string, GunDef> = {
         shotSpread: 1,
         bulletCount: 1,
         bulletType: "bullet_m39",
-        headshotMult: 1.75,
+        headshotMult: 1.5,
         speed: { equip: 0, attack: 0 },
         lootImg: {
             sprite: "loot-weapon-m39.img",
@@ -1697,7 +1685,7 @@ export const BaseDefs: Record<string, GunDef> = {
         shotSpread: 1,
         bulletCount: 1,
         bulletType: "bullet_svd",
-        headshotMult: 1.75,
+        headshotMult: 1.5,
         speed: { equip: 0, attack: 0 },
         lootImg: {
             sprite: "loot-weapon-svd.img",
@@ -1744,7 +1732,7 @@ export const BaseDefs: Record<string, GunDef> = {
         shotSpread: 0.4,
         bulletCount: 1,
         bulletType: "bullet_garand",
-        headshotMult: 1.74,
+        headshotMult: 1.44,
         speed: { equip: 0, attack: 0 },
         lootImg: {
             sprite: "loot-weapon-garand.img",
@@ -2040,7 +2028,7 @@ export const BaseDefs: Record<string, GunDef> = {
         recoilTime: 1e10,
         moveSpread: 1.5,
         shotSpread: 5.5,
-        bulletCount: 8,
+        bulletCount: 9,
         jitter: 0.3,
         bulletType: "bullet_flechette",
         headshotMult: 1.5,
@@ -2224,7 +2212,7 @@ export const BaseDefs: Record<string, GunDef> = {
         isDual: true,
         pistol: true,
         ammo: "9mm",
-        ammoSpawnCount: 45,
+        ammoSpawnCount: 90,
         maxClip: 30,
         maxReload: 30,
         extendedClip: 60,
@@ -2376,7 +2364,7 @@ export const BaseDefs: Record<string, GunDef> = {
         isDual: true,
         pistol: true,
         ammo: "9mm",
-        ammoSpawnCount: 60,
+        ammoSpawnCount: 120,
         maxClip: 40,
         maxReload: 40,
         extendedClip: 60,
@@ -2475,7 +2463,7 @@ export const BaseDefs: Record<string, GunDef> = {
         fireMode: "auto",
         caseTiming: "shoot",
         ammo: "9mm",
-        ammoSpawnCount: 51,
+        ammoSpawnCount: 102,
         isDual: true,
         pistol: true,
         maxClip: 34,
@@ -2673,7 +2661,7 @@ export const BaseDefs: Record<string, GunDef> = {
         fireMode: "single",
         caseTiming: "reload",
         ammo: "762mm",
-        ammoSpawnCount: 20,
+        ammoSpawnCount: 40,
         isDual: true,
         pistol: true,
         maxClip: 10,
@@ -2871,7 +2859,7 @@ export const BaseDefs: Record<string, GunDef> = {
         fireMode: "auto",
         caseTiming: "reload",
         ammo: "45acp",
-        ammoSpawnCount: 48,
+        ammoSpawnCount: 96,
         isDual: true,
         pistol: true,
         maxClip: 12,
@@ -2972,7 +2960,7 @@ export const BaseDefs: Record<string, GunDef> = {
         isDual: true,
         pistol: true,
         ammo: "45acp",
-        ammoSpawnCount: 28,
+        ammoSpawnCount: 56,
         maxClip: 14,
         maxReload: 14,
         extendedClip: 24,
@@ -3157,6 +3145,157 @@ export const BaseDefs: Record<string, GunDef> = {
             pickup: "gun_pickup_01",
             empty: "empty_fire_01",
             deploy: "deagle_switch_01",
+        },
+    },
+    barrett: {
+        name: "Barrett M107",
+        type: "gun",
+        quality: 1,
+        fireMode: "single",
+        caseTiming: "shoot",
+        ammo: "50AE",
+        aimDelay: true,
+        ammoSpawnCount: 30,
+        maxClip: 10,
+        maxReload: 10,
+        extendedClip: 12,
+        extendedReload: 12,
+        reloadTime: 3.75,
+        fireDelay: 0.925,
+        switchDelay: 1,
+        barrelLength: 4.2,
+        barrelOffset: 0,
+        recoilTime: 1e10,
+        moveSpread: 4,
+        shotSpread: 1,
+        bulletCount: 1,
+        bulletType: "bullet_barrett",
+        headshotMult: 1.25,
+        speed: { equip: -1, attack: -4 },
+        lootImg: {
+            sprite: "loot-weapon-barrett.img",
+            tint: 0xff00,
+            border: "loot-circle-outer-01.img",
+            borderTint: 0,
+            scale: 0.3,
+        },
+        worldImg: {
+            sprite: "gun-barrett-01.img",
+            scale: { x: 0.5, y: 0.5 },
+            tint: 0xffffff,
+            leftHandOffset: { x: 10, y: 0.75 },
+            recoil: 5,
+        },
+        particle: {
+            shellScale: 1.75,
+            shellOffset: 0.6,
+            casing: "50cal",
+        },
+        sound: {
+            shoot: "barrett_01",
+            reload: "barrett_reload_01",
+            pickup: "gun_pickup_01",
+            empty: "empty_fire_02",
+            deploy: "barrett_switch_01",
+        },
+    },
+    sw500: {
+        name: "S&W 500",
+        type: "gun",
+        quality: 1,
+        fireMode: "single",
+        caseTiming: "reload",
+        ammo: "50AE",
+        ammoSpawnCount: 35,
+        pistol: true,
+        maxClip: 5,
+        maxReload: 5,
+        extendedClip: 5,
+        extendedReload: 5,
+        reloadTime: 2.7,
+        fireDelay: 0.65,
+        switchDelay: 0.3,
+        barrelLength: 2.7,
+        barrelOffset: 0,
+        recoilTime: 1e10,
+        moveSpread: 3.5,
+        shotSpread: 1,
+        bulletCount: 1,
+        bulletType: "bullet_sw500",
+        headshotMult: 1.5,
+        speed: { equip: 0.5, attack: 0 },
+        lootImg: {
+            sprite: "loot-weapon-sw500.img",
+            tint: 0xff00,
+            border: "loot-circle-outer-01.img",
+            borderTint: 0,
+            scale: 0.3,
+        },
+        worldImg: {
+            sprite: "gun-sw500-01.img",
+            scale: { x: 0.5, y: 0.5 },
+            tint: 0xffffff,
+            leftHandOffset: { x: 0, y: 0 },
+            recoil: 1.5,
+        },
+        particle: { shellScale: 1.4, shellOffset: 0.265 },
+        sound: {
+            shoot: "sw500_01",
+            reload: "sw500_reload_01",
+            pickup: "gun_pickup_01",
+            empty: "empty_fire_01",
+            deploy: "sw500_switch_01",
+        },
+    },
+    ash12: {
+        name: "ASh-12",
+        type: "gun",
+        quality: 1,
+        fireMode: "auto",
+        caseTiming: "shoot",
+        ammo: "50AE",
+        ammoSpawnCount: 70,
+        maxClip: 10,
+        maxReload: 10,
+        extendedClip: 20,
+        extendedReload: 20,
+        reloadTime: 3.1,
+        fireDelay: 0.1,
+        switchDelay: 0.75,
+        barrelLength: 2.8,
+        barrelOffset: 0,
+        recoilTime: 0.35,
+        moveSpread: 3.5,
+        shotSpread: 3.5,
+        bulletCount: 1,
+        bulletType: "bullet_ash12",
+        headshotMult: 2,
+        speed: { equip: -1, attack: 0 },
+        lootImg: {
+            sprite: "loot-weapon-ash12.img",
+            tint: 0xff00,
+            border: "loot-circle-outer-01.img",
+            borderTint: 0,
+            scale: 0.3,
+        },
+        worldImg: {
+            sprite: "gun-ash12-01.img",
+            scale: { x: 0.5, y: 0.5 },
+            tint: 0xffffff,
+            leftHandOffset: { x: 7, y: 0.5 },
+            recoil: 2.5,
+        },
+        particle: {
+            shellScale: 1,
+            shellOffset: 0.375,
+            casing: "50cal",
+        },
+        sound: {
+            shoot: "ash12_01",
+            reload: "ash12_reload_01",
+            pickup: "gun_pickup_01",
+            empty: "empty_fire_01",
+            deploy: "ash12_switch_01",
         },
     },
     flare_gun: {
@@ -3401,7 +3540,7 @@ export const BaseDefs: Record<string, GunDef> = {
         reloadTime: 5.8,
         fireDelay: 0.07,
         switchDelay: 0.75,
-        barrelLength: 4.5,
+        barrelLength: 5,
         barrelOffset: 0,
         recoilTime: 1e10,
         moveSpread: 4,
@@ -3423,7 +3562,7 @@ export const BaseDefs: Record<string, GunDef> = {
             sprite: "gun-potato-lmg-top-01.img",
             scale: { x: 0.5, y: 0.5 },
             tint: 0xffffff,
-            gunOffset: { x: -30, y: 1.75 },
+            gunOffset: { x: -40, y: 1.75 },
             recoil: 1,
         },
         particle: {
@@ -3490,7 +3629,7 @@ export const BaseDefs: Record<string, GunDef> = {
         },
         sound: {
             shoot: "bugle_01",
-            shootTeam: { 1: "bugle_01", 2: "bugle_02" },
+            shootTeam: { [FactionTeam.Red]: "bugle_01", [FactionTeam.Blue]: "bugle_02" },
             shootAlt: "bugle_03",
             reload: "",
             pickup: "stow_weapon_01",

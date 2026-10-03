@@ -1,19 +1,19 @@
 import * as PIXI from "pixi.js-legacy";
-import { MapObjectDefs } from "../../../shared/defs/mapObjectDefs";
-import type { DecalDef } from "../../../shared/defs/mapObjectsTyping";
-import type { ObjectData, ObjectType } from "../../../shared/net/objectSerializeFns";
-import type { Collider } from "../../../shared/utils/coldet";
-import { collider } from "../../../shared/utils/collider";
-import { math } from "../../../shared/utils/math";
-import { util } from "../../../shared/utils/util";
-import { type Vec2, v2 } from "../../../shared/utils/v2";
-import type { Camera } from "../camera";
-import type { DebugRenderOpts } from "../config";
-import type { Ctx } from "../game";
-import type { Map } from "../map";
-import type { Renderer } from "../renderer";
-import { Pool } from "./objectPool";
-import type { AbstractObject } from "./player";
+
+import type { DecalDef } from "../../../shared/defs/mapObjects/decalDefs.ts";
+import { MapObjectDefs } from "../../../shared/defs/register.ts";
+import type { ObjectData, ObjectType } from "../../../shared/net/objectSerializeFns.ts";
+import type { Collider } from "../../../shared/utils/coldet.ts";
+import { collider } from "../../../shared/utils/collider.ts";
+import { math } from "../../../shared/utils/math.ts";
+import { assert, util } from "../../../shared/utils/util.ts";
+import { v2, type Vec2 } from "../../../shared/utils/v2.ts";
+import type { Camera } from "../camera.ts";
+import type { DebugRendererOpts } from "../config.ts";
+import type { Ctx } from "../game.ts";
+import type { Map } from "../map.ts";
+import type { Renderer } from "../renderer.ts";
+import { AbstractObject, Pool } from "./objectPool.ts";
 
 function lerpColor(t: number, a: number, b: number) {
     // util.lerpColor is relatively expensive; avoid if it possible
@@ -59,7 +59,7 @@ class Decal implements AbstractObject {
         ctx: Ctx,
     ) {
         if (fullUpdate) {
-            const def = MapObjectDefs[data.type] as DecalDef;
+            const def = MapObjectDefs.typeToDef(data.type, "decal");
 
             // Copy data
             this.type = data.type;
@@ -90,40 +90,41 @@ class Decal implements AbstractObject {
 
     update(dt: number) {
         if (this.hasGore) {
-            const def = MapObjectDefs[this.type] as DecalDef;
+            const def = MapObjectDefs.typeToDef(this.type, "decal");
+            assert(def.gore);
             let goreTarget = math.delerp(
                 this.goreKills,
-                def.gore?.fade.start!,
-                def.gore?.fade.end!,
+                def.gore.fade.start,
+                def.gore.fade.end,
             );
-            goreTarget = Math.pow(goreTarget, def.gore?.fade.pow!);
+            goreTarget = Math.pow(goreTarget, def.gore.fade.pow);
             this.goreT = this.isNew
                 ? goreTarget
-                : math.lerp(dt * def.gore?.fade.speed!, this.goreT, goreTarget);
+                : math.lerp(dt * def.gore.fade.speed, this.goreT, goreTarget);
 
             // Adjust properties based on the gore level
-            if (def.gore?.tint !== undefined) {
+            if (def.gore.tint !== undefined) {
                 const tint = lerpColor(this.goreT, def.img.tint, def.gore.tint);
                 this.decalRender!.setTint(tint);
             }
-            if (def.gore?.alpha !== undefined) {
+            if (def.gore.alpha !== undefined) {
                 this.decalRender!.spriteAlpha = math.lerp(
                     this.goreT,
                     def.img.alpha,
                     def.gore.alpha,
                 );
             }
-            if (def.gore?.waterColor !== undefined && this.surface) {
+            if (def.gore.waterColor !== undefined && this.surface) {
                 this.surface.data.waterColor = lerpColor(
                     this.goreT,
-                    def.surface?.data.waterColor!,
+                    def.surface!.data.waterColor,
                     def.gore.waterColor,
                 );
             }
-            if (def.gore?.rippleColor !== undefined && this.surface) {
+            if (def.gore.rippleColor !== undefined && this.surface) {
                 this.surface.data.rippleColor = lerpColor(
                     this.goreT,
-                    def.surface?.data.rippleColor!,
+                    def.surface!.data.rippleColor,
                     def.gore.rippleColor,
                 );
             }
@@ -165,7 +166,7 @@ class DecalRender {
     }
 
     init(decal: Decal, map: Map) {
-        const def = MapObjectDefs[decal.type] as DecalDef;
+        const def = MapObjectDefs.typeToDef(decal.type, "decal");
 
         this.pos = v2.copy(decal.pos);
         this.rot = decal.rot;
@@ -190,12 +191,12 @@ class DecalRender {
             this.inWater = surface.type == "water";
         }
 
-        this.flicker = def.img.flicker!;
-        if (this.flicker) {
-            this.flickerMin = def.img.flickerMin!;
-            this.flickerMax = def.img.flickerMax!;
+        this.flicker = !!def.img.flicker;
+        if (def.img.flicker) {
+            this.flickerMin = def.img.flickerMin;
+            this.flickerMax = def.img.flickerMax;
             this.flickerTarget = this.imgScale;
-            this.flickerRate = def.img.flickerRate!;
+            this.flickerRate = def.img.flickerRate;
             this.flickerCooldown = 0;
         }
 
@@ -287,5 +288,5 @@ export class DecalBarn {
         }
     }
 
-    m_render(_camera: Camera, _debug: DebugRenderOpts, _layer: number) {}
+    m_render(_camera: Camera, _debug: DebugRendererOpts, _layer: number) {}
 }

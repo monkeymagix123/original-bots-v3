@@ -1,10 +1,6 @@
-import type { Vec2 } from "../utils/v2";
-import type { BuildingDef } from "./types/building";
-import type { DecalDef } from "./types/decal";
-import type { ObstacleDef } from "./types/obstacle";
-import type { StructureDef } from "./types/structure";
+import type { Vec2 } from "../utils/v2.ts";
 
-interface TerrainSpawnDef {
+export interface TerrainSpawnDef {
     grass?: boolean;
     beach?: boolean;
     riverShore?: boolean;
@@ -28,6 +24,28 @@ interface TerrainSpawnDef {
     minDistanceFromSameType?: number;
 }
 
+export type SurfaceType =
+    | "asphalt"
+    | "brick"
+    | "bunker"
+    | "carpet"
+    | "container"
+    | "grass"
+    | "shack"
+    | "snow"
+    | "stone"
+    | "tile"
+    | "warehouse"
+    | "water"
+    | "house"
+    | "sand";
+
+export interface SurfaceData {
+    isBright?: boolean;
+    waterColor?: number;
+    rippleColor?: number;
+}
+
 export interface LootSpawnDef {
     tier?: string;
     min?: number;
@@ -40,16 +58,7 @@ export interface LootSpawnDef {
 }
 
 export interface LootSpawnerDef {
-    readonly type: "loot_spawner";
+    type: "loot_spawner";
     loot: Array<LootSpawnDef>;
     terrain?: TerrainSpawnDef;
 }
-
-export type { BuildingDef, DecalDef, ObstacleDef, StructureDef, TerrainSpawnDef };
-
-export type MapObjectDef =
-    | ObstacleDef
-    | BuildingDef
-    | StructureDef
-    | DecalDef
-    | LootSpawnerDef;

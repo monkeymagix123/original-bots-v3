@@ -1,8 +1,8 @@
-import { GameConfig } from "../../../shared/gameConfig";
-import { util } from "../../../shared/utils/util";
-import type { Vec2 } from "../../../shared/utils/v2";
-import type { Game } from "./game";
-import type { Player } from "./objects/player";
+import { GameConfig } from "../../../shared/gameConfig.ts";
+import { util } from "../../../shared/utils/util.ts";
+import type { Vec2 } from "../../../shared/utils/v2.ts";
+import type { Game } from "./game.ts";
+import type { Player } from "./objects/player.ts";
 
 class BasePlayerGroup {
     id: number;
@@ -20,14 +20,6 @@ class BasePlayerGroup {
     constructor(id: number, type: BasePlayerGroup["type"]) {
         this.id = id;
         this.type = type;
-    }
-
-    getAlivePlayers() {
-        return this.players.filter((p) => !p.dead && !p.disconnected);
-    }
-
-    getAliveTeammates(player: Player) {
-        return this.players.filter((p) => p != player && !p.dead && !p.disconnected);
     }
 
     checkPlayers(): void {
@@ -61,12 +53,10 @@ class BasePlayerGroup {
         return alivePlayers;
     }
 
-    /**
-     * kills all teammates, only called after last player on team thats not knocked gets knocked
-     */
-    killAllTeammates() {
-        const alivePlayers = this.getAlivePlayers();
-        for (const p of alivePlayers) {
+    killAllDowned() {
+        for (const p of this.players) {
+            if (p.dead) continue;
+            if (!p.downed) continue;
             p.kill({
                 damageType: GameConfig.DamageType.Bleeding,
                 dir: p.dir,
@@ -94,42 +84,13 @@ class BasePlayerGroup {
      * @returns true if any players in the group have the self revive perk
      */
     checkSelfRevive() {
-        const alivePlayers = this.getAlivePlayers();
-        for (const p of alivePlayers) {
+        for (const p of this.livingPlayers) {
+            if (p.disconnected) continue;
             if (p.hasPerk("self_revive")) {
                 return true;
             }
         }
         return false;
-    }
-
-    /**
-     *
-     * @param player optional player to exclude
-     * @returns random alive player
-     */
-    randomPlayer(player?: Player) {
-        const alivePlayers = player
-            ? this.getAliveTeammates(player)
-            : this.getAlivePlayers();
-        return alivePlayers[util.randomInt(0, alivePlayers.length - 1)];
-    }
-
-    /** gets next alive player in the array, loops around if end is reached */
-    nextPlayer(currentPlayer: Player) {
-        const alivePlayers = this.getAlivePlayers();
-        const currentPlayerIndex = alivePlayers.indexOf(currentPlayer);
-        const newIndex = (currentPlayerIndex + 1) % alivePlayers.length;
-        return alivePlayers[newIndex];
-    }
-
-    /** gets previous alive player in the array, loops around if beginning is reached */
-    prevPlayer(currentPlayer: Player) {
-        const alivePlayers = this.getAlivePlayers();
-        const currentPlayerIndex = alivePlayers.indexOf(currentPlayer);
-        const newIndex =
-            currentPlayerIndex == 0 ? alivePlayers.length - 1 : currentPlayerIndex - 1;
-        return alivePlayers[newIndex];
     }
 }
 
@@ -157,8 +118,8 @@ export class Group extends BasePlayerGroup {
 
     canJoin(players: number) {
         return (
-            this.maxPlayers - this.reservedSlots - players >= 0 &&
-            !this.allDeadOrDisconnected
+            this.maxPlayers - this.reservedSlots - players >= 0
+            && !this.allDeadOrDisconnected
         );
     }
 }

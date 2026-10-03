@@ -1,10 +1,10 @@
-import { ObjectType } from "../../../../shared/net/objectSerializeFns";
-import { collider } from "../../../../shared/utils/collider";
-import { type Vec2, v2 } from "../../../../shared/utils/v2";
-import type { Game } from "../game";
-import type { Loot } from "../objects/loot";
-import type { Player } from "../objects/player";
-import type { BotSkillProfile } from "./botDifficulty";
+import { ObjectType } from "../../../../shared/net/objectSerializeFns.ts";
+import { collider } from "../../../../shared/utils/collider.ts";
+import { v2, type Vec2 } from "../../../../shared/utils/v2.ts";
+import type { Game } from "../game.ts";
+import type { Loot } from "../objects/loot.ts";
+import type { Player } from "../objects/player.ts";
+import type { BotSkillProfile } from "./botDifficulty.ts";
 
 export interface EnemyMemory {
     id: number;
@@ -54,13 +54,13 @@ export class BotPerception {
         const observableObjects = this.diagnostic
             ? undefined
             : this.game.grid.intersectCollider(
-                  collider.createCircle(this.player.pos, this.profile.perceptionRadius),
-              );
+                collider.createCircle(this.player.pos, this.profile.perceptionRadius),
+            );
         const possibleEnemies = this.diagnostic
             ? this.game.playerBarn.livingPlayers
             : observableObjects!.filter(
-                  (object): object is Player => object.__type === ObjectType.Player,
-              );
+                (object): object is Player => object.__type === ObjectType.Player,
+            );
 
         for (const candidate of possibleEnemies) {
             if (!this.isEnemy(candidate)) continue;
@@ -106,15 +106,15 @@ export class BotPerception {
         const possibleLoot = this.diagnostic
             ? this.game.lootBarn.loots
             : observableObjects!.filter(
-                  (object): object is Loot => object.__type === ObjectType.Loot,
-              );
+                (object): object is Loot => object.__type === ObjectType.Loot,
+            );
         const nearbyLoot = possibleLoot.filter(
             (loot) =>
-                !loot.destroyed &&
-                loot.layer === this.player.layer &&
-                v2.lengthSqr(v2.sub(loot.pos, this.player.pos)) <=
-                    lootRadius * lootRadius &&
-                (this.diagnostic || this.hasLineOfSightTo(loot.pos)),
+                !loot.destroyed
+                && loot.layer === this.player.layer
+                && v2.lengthSqr(v2.sub(loot.pos, this.player.pos))
+                    <= lootRadius * lootRadius
+                && (this.diagnostic || this.hasLineOfSightTo(loot.pos)),
         );
 
         const zoneCenter = v2.copy(this.game.gas.currentPos);
@@ -160,16 +160,15 @@ export class BotPerception {
         const candidates: CoverCandidate[] = [];
         for (const object of nearby) {
             if (
-                object.__type !== ObjectType.Obstacle ||
-                object.dead ||
-                !object.collidable ||
-                object.layer !== this.player.layer
+                object.__type !== ObjectType.Obstacle
+                || object.dead
+                || !object.collidable
+                || object.layer !== this.player.layer
             ) {
                 continue;
             }
             const bounds = collider.toAabb(object.collider);
-            const radius =
-                Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y) / 2;
+            const radius = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y) / 2;
             const awayFromThreat = v2.directionNormalized(threat.position, object.pos);
             const position = v2.add(object.pos, v2.mul(awayFromThreat, radius + 1.35));
             const blocksThreat = collider.intersectSegment(
@@ -202,8 +201,9 @@ export class BotPerception {
         const objects = this.game.grid.intersectLineSegment(this.player.pos, position);
         for (const object of objects) {
             if (object.__type !== ObjectType.Obstacle) continue;
-            if (object.dead || !object.collidable || object.layer !== this.player.layer)
+            if (object.dead || !object.collidable || object.layer !== this.player.layer) {
                 continue;
+            }
             if (collider.intersectSegment(object.collider, this.player.pos, position)) {
                 return false;
             }

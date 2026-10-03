@@ -1,7 +1,7 @@
 // /api/team_v2 websocket msgs typing
 
 import { z } from "zod";
-import type { FindGameMatchData } from "./api";
+import type { FindGameMatchData } from "./api.ts";
 
 export type TeamMenuErrorType =
     | "join_full"
@@ -22,7 +22,7 @@ export type TeamMenuErrorType =
 export interface RoomData {
     roomUrl: string;
     findingGame: boolean;
-    lastError: TeamMenuErrorType | "";
+    lastError: TeamMenuErrorType | undefined;
     region: string;
     autoFill: boolean;
     enabledGameModeIdxs: number[];
@@ -91,7 +91,7 @@ export type ServerToClientTeamMsg =
 export const zClientRoomData = z.object({
     roomUrl: z.string(),
     findingGame: z.boolean(),
-    lastError: z.string(),
+    lastError: z.string().optional(),
     region: z.string(),
     autoFill: z.boolean(),
     gameModeIdx: z.number(),

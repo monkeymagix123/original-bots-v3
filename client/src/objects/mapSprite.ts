@@ -1,24 +1,13 @@
 import * as PIXI from "pixi.js-legacy";
-import { math } from "../../../shared/utils/math";
-import { v2 } from "../../../shared/utils/v2";
-import type { Map } from "../map";
-import type { UiManager } from "../ui/ui";
-
-class SortableSprite extends PIXI.Sprite {
-    /**
-     *  zindex: A higher value will mean it will be rendered on top of other displayObjects within the same container.
-     */
-    __zOrder = -1;
-
-    constructor() {
-        super();
-    }
-}
+import { math } from "../../../shared/utils/math.ts";
+import { v2 } from "../../../shared/utils/v2.ts";
+import type { Map } from "../map.ts";
+import type { UiManager } from "../ui/ui.ts";
 
 export class MapSprite {
     active = false;
     retained = true;
-    sprite = new SortableSprite();
+    sprite = new PIXI.Sprite();
     pos = v2.create(0, 0);
     scale = 1;
     alpha = 1;
@@ -45,6 +34,8 @@ export class MapSprite {
         this.lifetime = Number.MAX_VALUE;
         this.ticker = 0;
         this.zOrder = 0;
+        this.sprite.visible = true;
+        this.sprite.alpha = 1;
     }
 
     free() {
@@ -58,7 +49,7 @@ export class MapSprite {
 }
 
 export class MapSpriteBarn {
-    container = new PIXI.Container<SortableSprite>();
+    container = new PIXI.Container();
     mapSprites: MapSprite[] = [];
 
     free() {
@@ -93,8 +84,8 @@ export class MapSpriteBarn {
         for (let i = 0; i < this.mapSprites.length; i++) {
             const m = this.mapSprites[i];
             if (m.active) {
-                if (m.zOrder != m.sprite.__zOrder) {
-                    m.sprite.__zOrder = m.zOrder;
+                if (m.zOrder != m.sprite.zIndex) {
+                    m.sprite.zIndex = m.zOrder;
                     doSort = true;
                 }
                 m.ticker += dt;
@@ -103,9 +94,8 @@ export class MapSpriteBarn {
                 }
                 const pos = uiManager.getMapPosFromWorldPos(m.pos, map);
                 const scale = m.scale;
-                const fade =
-                    math.smoothstep(m.ticker, 0, 0.1) *
-                    (1 - math.smoothstep(m.ticker, m.lifetime - 0.5, m.lifetime));
+                const fade = math.smoothstep(m.ticker, 0, 0.1)
+                    * (1 - math.smoothstep(m.ticker, m.lifetime - 0.5, m.lifetime));
                 m.sprite.position.set(pos.x, pos.y);
                 m.sprite.scale.set(scale, scale);
                 m.sprite.alpha = m.alpha * fade;
@@ -116,9 +106,7 @@ export class MapSpriteBarn {
             }
         }
         if (doSort) {
-            this.container.children.sort((a, b) => {
-                return a.__zOrder - b.__zOrder;
-            });
+            this.container.sortChildren();
         }
     }
 }

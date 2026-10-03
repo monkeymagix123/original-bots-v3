@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@taufik-nurrohman/color-picker": "1.4.2",
-    "base64-js": "^1.5.1",
     "bootstrap": "^4.6.2",
     "ejs": "^4.0.1",
+    "hono": "^4.13.8",
     "jquery": "^3.7.1",
     "pixi.js-legacy": "^7.4.3",
     "slugify": "^1.6.9"
@@ -25,11 +25,10 @@
     "canvas": "^3.2.3",
     "codefend": "^3.2.0",
     "maxrects-packer": "^2.7.3",
-    "sharp": "^0.34.5",
-    "tsx": "^4.22.1",
+    "sharp": "^0.35.4",
+    "svgo": "^4.1.0",
     "turnstile-types": "^1.2.3",
     "tweakpane": "^4.0.5",
-    "vite": "^8.0.13",
-    "vite-plugin-strip-block": "^1.1.1"
+    "vite": "^8.3.0"
   }
 }

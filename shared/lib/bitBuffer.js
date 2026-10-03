@@ -2,7 +2,7 @@
  * Replace Math.min and Math.max with a ternary for performance
  * -NSC 09-05-18
  */
-import { math } from "../utils/math";
+import { math } from "../utils/math.ts";
 
 /**********************************************************
  *

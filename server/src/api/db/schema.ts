@@ -5,14 +5,15 @@ import {
     integer,
     json,
     pgTable,
+    primaryKey,
     serial,
     text,
     timestamp,
     uniqueIndex,
     uuid,
 } from "drizzle-orm/pg-core";
-import { TeamMode } from "../../../../shared/gameConfig";
-import { ItemStatus, type Loadout, loadout } from "../../../../shared/utils/loadout";
+import { TeamMode } from "../../../../shared/gameConfig.ts";
+import { ItemStatus, type Loadout, loadout } from "../../../../shared/utils/loadout.ts";
 
 export const sessionTable = pgTable("session", {
     id: text("id").primaryKey(),
@@ -158,6 +159,7 @@ export const matchDataTable = pgTable(
             table.region,
             table.kills,
         ),
+        primaryKey({ columns: [table.gameId, table.playerId] }),
     ],
 );
 

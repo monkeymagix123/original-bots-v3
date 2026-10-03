@@ -1,21 +1,22 @@
 import "@taufik-nurrohman/color-picker";
 import $ from "jquery";
-import { GameObjectDefs } from "../../../shared/defs/gameObjectDefs";
-import { EmoteCategory, type EmoteDef } from "../../../shared/defs/gameObjects/emoteDefs";
-import type { MeleeDef } from "../../../shared/defs/gameObjects/meleeDefs";
-import type { UnlockDef } from "../../../shared/defs/gameObjects/unlockDefs";
-import { EmoteSlot, Rarity } from "../../../shared/gameConfig";
-import type { ItemStatus } from "../../../shared/utils/loadout";
-import { type Crosshair, type Loadout, loadout } from "../../../shared/utils/loadout";
-import { util } from "../../../shared/utils/util";
-import type { Account } from "../account";
-import { crosshair } from "../crosshair";
-import { device } from "../device";
-import { helpers } from "../helpers";
-import { SDK } from "../sdk/sdk";
-import type { Localization } from "./localization";
-import { MenuModal } from "./menuModal";
-import type { LoadoutDisplay } from "./opponentDisplay";
+
+import type { GameObjectDef } from "../../../shared/defs/gameObjectDefs.ts";
+import { EmoteCategory, type EmoteDef } from "../../../shared/defs/gameObjects/emoteDefs.ts";
+import { GameObjectDefs } from "../../../shared/defs/register.ts";
+import { EmoteSlot, Rarity } from "../../../shared/gameConfig.ts";
+import type { PassState } from "../../../shared/types/user.ts";
+import type { Item, LoadoutItemDef } from "../../../shared/utils/loadout.ts";
+import { type Crosshair, type Loadout, loadout } from "../../../shared/utils/loadout.ts";
+import { util } from "../../../shared/utils/util.ts";
+import type { Account } from "../account.ts";
+import { crosshair } from "../crosshair.ts";
+import { device } from "../device.ts";
+import { helpers } from "../helpers.ts";
+import { SDK } from "../sdk/sdk.ts";
+import type { Localization } from "./localization.ts";
+import { MenuModal } from "./menuModal.ts";
+import type { LoadoutDisplay } from "./opponentDisplay.ts";
 
 function emoteSlotToDomElem(e: Exclude<EmoteSlot, EmoteSlot.Count>) {
     const emoteSlotToDomId = {
@@ -30,12 +31,17 @@ function emoteSlotToDomElem(e: Exclude<EmoteSlot, EmoteSlot.Count>) {
     return $(`#${domId}`);
 }
 
-function itemSort(sortFn: (a: Item, b: Item) => void) {
-    return function (a: Item, b: Item) {
+interface SortableItem {
+    type: string;
+    timeAcquired: number;
+}
+
+function itemSort(sortFn: (a: SortableItem, b: SortableItem) => number) {
+    return function(a: SortableItem, b: SortableItem) {
         // Always put stock items at the front of the list;
         // if not stock, sort by the given sort routine
-        const rarityA = (GameObjectDefs[a.type] as EmoteDef).rarity || Rarity.Stock;
-        const rarityB = (GameObjectDefs[b.type] as EmoteDef).rarity || Rarity.Stock;
+        const rarityA = (GameObjectDefs.typeToDef(a.type) as LoadoutItemDef).rarity || Rarity.Stock;
+        const rarityB = (GameObjectDefs.typeToDef(b.type) as LoadoutItemDef).rarity || Rarity.Stock;
         if (rarityA == Rarity.Stock && rarityB == Rarity.Stock) {
             return sortAlphabetical(a, b);
         }
@@ -49,16 +55,16 @@ function itemSort(sortFn: (a: Item, b: Item) => void) {
     };
 }
 
-function sortAcquired(a: Item, b: Item) {
+function sortAcquired(a: SortableItem, b: SortableItem) {
     if (b.timeAcquired == a.timeAcquired) {
         return sortSubcat(a, b);
     }
     return b.timeAcquired - a.timeAcquired;
 }
 
-function sortAlphabetical(a: Item, b: Item) {
-    const defA = GameObjectDefs[a.type] as EmoteDef;
-    const defB = GameObjectDefs[b.type] as EmoteDef;
+function sortAlphabetical(a: SortableItem, b: SortableItem): number {
+    const defA = GameObjectDefs.typeToDef(a.type) as LoadoutItemDef;
+    const defB = GameObjectDefs.typeToDef(b.type) as LoadoutItemDef;
     if (defA.name! < defB.name!) {
         return -1;
     }
@@ -68,38 +74,31 @@ function sortAlphabetical(a: Item, b: Item) {
     return 0;
 }
 
-function sortRarity(a: Item, b: Item) {
-    const rarityA = (GameObjectDefs[a.type] as EmoteDef).rarity || Rarity.Stock;
-    const rarityB = (GameObjectDefs[b.type] as EmoteDef).rarity || Rarity.Stock;
+function sortRarity(a: SortableItem, b: SortableItem) {
+    const rarityA = (GameObjectDefs.typeToDef(a.type) as LoadoutItemDef).rarity || Rarity.Stock;
+    const rarityB = (GameObjectDefs.typeToDef(b.type) as LoadoutItemDef).rarity || Rarity.Stock;
     if (rarityA == rarityB) {
         return sortAlphabetical(a, b);
     }
     return rarityB - rarityA;
 }
 
-function sortSubcat(a: Item, b: Item) {
-    const defA = GameObjectDefs[a.type] as EmoteDef;
-    const defB = GameObjectDefs[b.type] as EmoteDef;
+function sortSubcat(a: SortableItem, b: SortableItem) {
+    const defA = GameObjectDefs.typeToDef(a.type) as EmoteDef;
+    const defB = GameObjectDefs.typeToDef(b.type) as EmoteDef;
     if (!defA.category || !defB.category || defA.category == defB.category) {
         return sortAlphabetical(a, b);
     }
     return defA.category - defB.category;
 }
 
-const sortTypes: Record<string, any> = {
+const sortTypes: Record<string, ReturnType<typeof itemSort>> = {
     newest: itemSort(sortAcquired),
     alpha: itemSort(sortAlphabetical),
     rarity: itemSort(sortRarity),
     subcat: itemSort(sortSubcat),
 };
 
-export interface Item {
-    type: string;
-    source: string;
-    timeAcquired: number;
-    status?: ItemStatus;
-    ackd?: ItemStatus.Ackd;
-}
 interface ItemInfo {
     type: string;
     loadoutType: string;
@@ -123,6 +122,7 @@ interface EquippedItem {
     subcat: EmoteCategory;
     displaySource?: string;
 }
+
 export class LoadoutMenu {
     initialized = false;
     active = false;
@@ -135,7 +135,11 @@ export class LoadoutMenu {
     confirmingItems = false;
     localAckItems: Item[] = [];
 
-    categories = [
+    categories: Array<{
+        loadoutType: Exclude<keyof Loadout, "emotes"> | "emote";
+        gameType: GameObjectDef["type"];
+        categoryImage: string;
+    }> = [
         {
             loadoutType: "outfit",
             gameType: "outfit",
@@ -236,7 +240,7 @@ export class LoadoutMenu {
         this.modal.onHide(() => {
             this.onHide();
         });
-        const displayBlockingElem = function () {
+        const displayBlockingElem = function() {
             $("#modal-screen-block").fadeIn(200);
         };
         this.confirmItemModal = new MenuModal($("#modal-item-confirm"));
@@ -331,8 +335,7 @@ export class LoadoutMenu {
                 }
             });
 
-            const colorCode =
-                document.querySelector<HTMLInputElement>("#color-picker-hex")!;
+            const colorCode = document.querySelector<HTMLInputElement>("#color-picker-hex")!;
             const updateColor = () => {
                 const value = colorCode.value;
                 if (value.length) {
@@ -434,19 +437,19 @@ export class LoadoutMenu {
         for (let i = 0; i < this.items.length; i++) {
             const item = this.items[i];
             if (
-                item.status! < loadout.ItemStatus.Confirmed &&
-                !this.localPendingConfirm.find((x) => {
+                item.status! < loadout.ItemStatus.Confirmed
+                && !this.localPendingConfirm.find((x) => {
                     return x.type == item.type;
-                }) &&
-                !this.localConfirmed.find((x) => {
+                })
+                && !this.localConfirmed.find((x) => {
                     return x.type == item.type;
                 })
             ) {
                 this.localPendingConfirm.push(item);
             }
             if (
-                item.status! < loadout.ItemStatus.Ackd &&
-                !this.localAckItems.find((x) => {
+                item.status! < loadout.ItemStatus.Ackd
+                && !this.localAckItems.find((x) => {
                     return x.type == item.type;
                 })
             ) {
@@ -459,7 +462,7 @@ export class LoadoutMenu {
         }
     }
 
-    onPass(pass: UnlockDef) {
+    onPass(pass: PassState) {
         // Show/hide the social media buttons based on whether we have
         // unlocked them
         const unlocks = ["facebook", "instagram", "youtube", "twitter"];
@@ -513,11 +516,11 @@ export class LoadoutMenu {
         const ackItemTypes = [];
         for (let i = 0; i < this.items.length; i++) {
             const item = this.items[i];
-            const objDef = GameObjectDefs[item.type];
+            const objDef = GameObjectDefs.typeToDefSafe(item.type);
             if (
-                objDef &&
-                objDef.type == category.gameType &&
-                item?.status! < loadout.ItemStatus.Ackd
+                objDef
+                && objDef.type == category.gameType
+                && item.status! < loadout.ItemStatus.Ackd
             ) {
                 ackItemTypes.push(item.type);
             }
@@ -546,13 +549,12 @@ export class LoadoutMenu {
         const currentNewItem = this.localPendingConfirm.shift()!;
         if (currentNewItem) {
             this.localConfirmed.push(currentNewItem);
-            const objDef = GameObjectDefs[currentNewItem.type] as EmoteDef;
+            const objDef = GameObjectDefs.typeToDef(currentNewItem.type) as LoadoutItemDef;
             const itemInfo = {
                 type: currentNewItem.type,
                 rarity: objDef.rarity || Rarity.Stock,
-                displayName:
-                    this.localization.translate(`game-${currentNewItem.type}`) ||
-                    objDef.name!,
+                displayName: this.localization.translate(`game-${currentNewItem.type}`)
+                    || objDef.name!,
                 category: objDef.type,
             };
             const svg = helpers.getSvgFromGameType(currentNewItem.type);
@@ -563,6 +565,7 @@ export class LoadoutMenu {
                 $("#modal-item-confirm-image-inner").css({
                     "background-image": imageUrl,
                     transform,
+                    filter: objDef?.type === "outfit" ? helpers.getSvgFilterForTint(objDef.lootImg.tint) : "",
                 });
                 this.confirmItemModal.show();
             }, 200);
@@ -612,8 +615,8 @@ export class LoadoutMenu {
                     const elem = e.currentTarget;
                     if (!$(elem).hasClass("customize-list-item-locked")) {
                         if (
-                            this.itemSelected &&
-                            !$(elem).hasClass("customize-list-item")
+                            this.itemSelected
+                            && !$(elem).hasClass("customize-list-item")
                         ) {
                             this.deselectItem();
                             return;
@@ -646,7 +649,7 @@ export class LoadoutMenu {
                         this.updateLoadoutFromDOM();
                     }
                 });
-                this.droppableSlots.on("dragover", function (e) {
+                this.droppableSlots.on("dragover", function(e) {
                     e.originalEvent?.preventDefault();
                     $(this).parent().find(".ui-emote-hl").css("opacity", 1);
                 });
@@ -704,7 +707,7 @@ export class LoadoutMenu {
                 stroke: stroke.toFixed(2),
             };
         } else {
-            this.loadout[loadoutType as keyof Loadout] = this.selectedItem.type as any;
+            this.loadout[loadoutType] = this.selectedItem.type;
         }
 
         this.loadout = loadout.validate(this.loadout);
@@ -738,10 +741,10 @@ export class LoadoutMenu {
 
         // Deselect this emote if it's already selected
         if (
-            selectedItem.type == this.selectedItem.type &&
-            selectedItem.loadoutType == "emote" &&
-            this.selectedItem.loadoutType == "emote" &&
-            deselect
+            selectedItem.type == this.selectedItem.type
+            && selectedItem.loadoutType == "emote"
+            && this.selectedItem.loadoutType == "emote"
+            && deselect
         ) {
             this.deselectItem();
             return;
@@ -761,10 +764,9 @@ export class LoadoutMenu {
             subcat: selectedItem.subcat,
         };
         this.modalCustomizeItemName.html(this.selectedItem.displayName!);
-        const source =
-            this.localization.translate(`loadout-${selectedItem.displaySource}`) ||
-            this.localization.translate(`${selectedItem.displaySource}`) ||
-            this.selectedItem.displaySource;
+        const source = this.localization.translate(`loadout-${selectedItem.displaySource}`)
+            || this.localization.translate(`${selectedItem.displaySource}`)
+            || this.selectedItem.displaySource;
         const sourceTxt = `${this.localization.translate("loadout-acquired")}: ${source}`;
         this.modalCustomizeItemSource.html(sourceTxt);
 
@@ -779,12 +781,9 @@ export class LoadoutMenu {
             [EmoteCategory.Flags]: this.localization.translate("emote-subcat-flags"),
             [EmoteCategory.Default]: this.localization.translate("emote-subcat-default"),
         };
-        const localizedLore =
-            selectedItem.loadoutType == "emote"
-                ? `${this.localization.translate("loadout-category")}: ${
-                      emoteSubcatNames[selectedItem.subcat]
-                  }`
-                : this.selectedItem.displayLore;
+        const localizedLore = selectedItem.loadoutType == "emote"
+            ? `${this.localization.translate("loadout-category")}: ${emoteSubcatNames[selectedItem.subcat]}`
+            : this.selectedItem.displayLore;
         this.modalCustomizeItemLore.html(localizedLore!);
         const rarityNames = ["stock", "common", "uncommon", "rare", "epic", "mythic"];
         const Rarities = [
@@ -818,7 +817,7 @@ export class LoadoutMenu {
         }
 
         if (this.selectedItem.loadoutType == "crosshair") {
-            const objDef = GameObjectDefs[this.selectedItem.type];
+            const objDef = GameObjectDefs.typeToDefSafe(this.selectedItem.type);
             if (objDef && objDef.type == "crosshair" && objDef.cursor) {
                 $("#modal-content-right-crosshair").css("display", "none");
             } else {
@@ -875,18 +874,16 @@ export class LoadoutMenu {
         const image = parent.find(".customize-emote-slot");
         image.css("background-image", img || "none");
         image.data("img", img || "none");
-        const emoteDef = GameObjectDefs[type] as EmoteDef & { lore: string };
+        const emoteDef = GameObjectDefs.typeToDefSafe(type) as LoadoutItemDef;
         const slotIdx = parent.data("idx") as number;
         if (emoteDef) {
             const itemInfo: EquippedItem = {
                 loadoutType: "emote",
                 type,
                 rarity: emoteDef.rarity || Rarity.Stock,
-                displayName:
-                    this.localization.translate(`game-${type}`) || emoteDef.name!,
-                displayLore:
-                    this.localization.translate(`game-${type}-lore`) || emoteDef.lore,
-                subcat: emoteDef.category,
+                displayName: this.localization.translate(`game-${type}`) || emoteDef.name!,
+                displayLore: this.localization.translate(`game-${type}-lore`) || emoteDef.lore,
+                subcat: (emoteDef as EmoteDef).category,
             };
             this.equippedItems[slotIdx] = itemInfo;
         } else {
@@ -902,7 +899,7 @@ export class LoadoutMenu {
             const category = this.categories[r];
             for (let i = this.localAckItems.length - 1; i >= 0; i--) {
                 const s = this.localAckItems[i];
-                const n = GameObjectDefs[s.type];
+                const n = GameObjectDefs.typeToDef(s.type);
                 if (n.type == category.gameType) {
                     this.localAckItems.splice(i, 1);
                 }
@@ -911,13 +908,12 @@ export class LoadoutMenu {
         const category = this.categories[this.selectedCatIdx];
 
         const loadoutItems = this.items.filter((x) => {
-            const gameTypeDef = GameObjectDefs[x.type];
+            const gameTypeDef = GameObjectDefs.typeToDefSafe(x.type);
             return gameTypeDef && gameTypeDef.type == category.gameType;
         });
 
         // Sort items based on currently selected sort
-        const displaySubcatSort =
-            category.loadoutType == "emote" || category.loadoutType == "player_icon";
+        const displaySubcatSort = category.loadoutType == "emote" || category.loadoutType == "player_icon";
 
         $("#customize-sort-subcat").css("display", displaySubcatSort ? "block" : "none");
 
@@ -935,15 +931,15 @@ export class LoadoutMenu {
 
         this.loadoutDisplay?.setView(category.loadoutType);
 
-        const _ = $(`.modal-customize-cat[data-idx='${this.selectedCatIdx}']`);
+        const catModal = $(`.modal-customize-cat[data-idx='${this.selectedCatIdx}']`);
         this.selectableCats.removeClass("modal-customize-cat-selected");
         this.selectableCatConnects.removeClass("modal-customize-cat-connect-selected");
         this.selectableCatImages.removeClass("modal-customize-cat-image-selected");
-        _.addClass("modal-customize-cat-selected");
-        _.find(".modal-customize-cat-connect").addClass(
+        catModal.addClass("modal-customize-cat-selected");
+        catModal.find(".modal-customize-cat-connect").addClass(
             "modal-customize-cat-connect-selected",
         );
-        _.find(".modal-customize-cat-image").addClass(
+        catModal.find(".modal-customize-cat-image").addClass(
             "modal-customize-cat-image-selected",
         );
         const localizedTitle = this.localization
@@ -968,8 +964,8 @@ export class LoadoutMenu {
         this.modalCustomizeItemLore.html("");
         this.modalCustomizeItemRarity.html("");
 
-        const getItemSourceName = function (source: string) {
-            const sourceDef = GameObjectDefs[source] as EmoteDef;
+        const getItemSourceName = function(source: string) {
+            const sourceDef = GameObjectDefs.typeToDefSafe(source) as LoadoutItemDef;
             if (sourceDef?.name) {
                 return sourceDef.name;
             }
@@ -981,20 +977,18 @@ export class LoadoutMenu {
         const listItems = $("<div/>");
         for (let i = 0; i < loadoutItems.length; i++) {
             const item = loadoutItems[i];
-            const objDef = GameObjectDefs[item.type] as MeleeDef;
+            const objDef = GameObjectDefs.typeToDef(item.type) as LoadoutItemDef;
 
             const itemInfo: ItemInfo = {
                 loadoutType: category.loadoutType,
                 type: item.type,
                 rarity: objDef.rarity || Rarity.Stock,
-                displayName:
-                    this.localization.translate(`game-${item.type}`) || objDef.name,
-                displayLore:
-                    this.localization.translate(`game-${item.type}-lore`) || objDef.lore!,
+                displayName: this.localization.translate(`game-${item.type}`) || objDef.name!,
+                displayLore: this.localization.translate(`game-${item.type}-lore`) || objDef.lore!,
                 displaySource: getItemSourceName(item.source),
                 timeAcquired: item.timeAcquired,
                 idx: i,
-                subcat: (objDef as unknown as EmoteDef).category,
+                subcat: (objDef as EmoteDef).category,
                 outerDiv: null,
             };
 
@@ -1011,6 +1005,7 @@ export class LoadoutMenu {
                 css: {
                     "background-image": `url(${svg})`,
                     transform,
+                    filter: objDef.type === "outfit" ? helpers.getSvgFilterForTint(objDef.lootImg.tint) : "",
                 },
                 "data-img": `url(${svg})`,
                 draggable,
@@ -1051,14 +1046,14 @@ export class LoadoutMenu {
             this.selectedCatItems.push(itemInfo);
             if (!loadoutItemDiv) {
                 if (
-                    category.loadoutType == "crosshair" &&
-                    itemInfo.type == this.loadout.crosshair.type
+                    category.loadoutType == "crosshair"
+                    && itemInfo.type == this.loadout.crosshair.type
                 ) {
                     loadoutItemDiv = itemInfo.outerDiv;
                 } else if (
-                    category.loadoutType != "emote" &&
-                    itemInfo.type ==
-                        this.loadout[category.loadoutType as keyof typeof this.loadout]
+                    category.loadoutType != "emote"
+                    && itemInfo.type
+                        == this.loadout[category.loadoutType as keyof typeof this.loadout]
                 ) {
                     loadoutItemDiv = itemInfo.outerDiv;
                 }
@@ -1077,7 +1072,7 @@ export class LoadoutMenu {
             for (let T = 0; T < this.loadout.emotes.length; T++) {
                 this.equippedItems.push({} as EquippedItem);
                 const emote = this.loadout.emotes[T];
-                if (GameObjectDefs[emote]) {
+                if (GameObjectDefs.typeExists(emote)) {
                     const svg = helpers.getSvgFromGameType(emote);
                     const imgCss = `url(${svg})`;
                     const domElem = emoteSlotToDomElem(T);
@@ -1105,32 +1100,6 @@ export class LoadoutMenu {
             this.modalCustomizeItemName.trigger("click");
         }
 
-        // Disable crosshair elements on Edge
-        if (device.browser == "edge") {
-            if (category.loadoutType == "crosshair") {
-                const disableElem = function (
-                    parentElem: JQuery<HTMLElement>,
-                    disableElem: JQuery<HTMLElement>,
-                ) {
-                    const height =
-                        parentElem.height()! +
-                        parseInt(parentElem.css("padding-top")) +
-                        parseInt(parentElem.css("padding-bottom"));
-                    disableElem.css("height", height);
-                };
-                disableElem(
-                    $("#modal-customize-body"),
-                    $("#modal-content-left").find(".modal-disabled"),
-                );
-                disableElem(
-                    $("#modal-content-right-crosshair"),
-                    $("#modal-content-right-crosshair").find(".modal-disabled"),
-                );
-                $(".modal-disabled").css("display", "block");
-            } else {
-                $(".modal-disabled").css("display", "none");
-            }
-        }
         this.onResize();
     }
 
@@ -1139,7 +1108,7 @@ export class LoadoutMenu {
         for (let i = 0; i < this.categories.length; i++) {
             const category = this.categories[i];
             const unackdItems = this.localAckItems.filter((x) => {
-                const gameTypeDef = GameObjectDefs[x.type];
+                const gameTypeDef = GameObjectDefs.typeToDefSafe(x.type);
                 return gameTypeDef && gameTypeDef.type == category.gameType;
             });
             $(`.modal-customize-cat[data-idx='${i}']`)
@@ -1149,20 +1118,21 @@ export class LoadoutMenu {
     }
 
     setEmoteDraggable(selector: JQuery<HTMLElement>, that: LoadoutMenu) {
-        selector.on("dragstart", function (e) {
-            if (
-                !$(this).hasClass("customize-list-item-locked") &&
-                (that.selectItem($(this), false), device.browser != "edge")
-            ) {
-                const imgDiv = document.createElement("img");
-                imgDiv.src = that.selectedItem.img
-                    ? that.selectedItem.img
-                          .replace("url(", "")
-                          .replace(")", "")
-                          .replace(/\'/gi, "")
-                    : "";
-                e.originalEvent?.dataTransfer?.setDragImage(imgDiv, 64, 64);
+        selector.on("dragstart", function(e) {
+            if ($(this).hasClass("customize-list-item-locked")) {
+                return;
             }
+
+            that.selectItem($(this), false);
+
+            const imgDiv = document.createElement("img");
+            imgDiv.src = that.selectedItem.img
+                ? that.selectedItem.img
+                    .replace("url(", "")
+                    .replace(")", "")
+                    .replace(/'/gi, "")
+                : "";
+            e.originalEvent?.dataTransfer?.setDragImage(imgDiv, 64, 64);
         });
     }
 

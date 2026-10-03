@@ -1,8 +1,8 @@
-import { api } from "./api";
+import { api } from "./api.ts";
 
 class ErrorLog {
     private requests = 0;
-    private enabled = true || import.meta.env.PROD;
+    private enabled = true;
     private throttle = false;
     private throttleTimeout = 0;
     private errorLogCount = 0;
@@ -46,6 +46,10 @@ class ErrorLog {
     }
 
     storeGeneric(parent: string, child: unknown) {
+        // account errors don't give any useful information.. :/
+        // they just happen when a network request fails
+        // so disable them for now
+        if (parent === "account") return;
         if (this.sample()) {
             this.store("storeGeneric", {
                 parent: parent,

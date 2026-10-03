@@ -1,12 +1,11 @@
-import { GameConfig } from "../../gameConfig";
-import { util } from "../../utils/util";
-import { v2 } from "../../utils/v2";
-import type { MapDef } from "../mapDefs";
-import { MapId } from "../types/misc";
-import { Main, type PartialMapDef } from "./baseDefs";
+import { GameConfig } from "../../gameConfig.ts";
+import { util } from "../../utils/util.ts";
+import { v2 } from "../../utils/v2.ts";
+import type { MapDef } from "../mapDefs.ts";
+import { Main, type PartialMapDef } from "./baseDefs.ts";
 
 const mapDef: PartialMapDef = {
-    mapId: MapId.Beach,
+    mapId: GameConfig.MapId.Beach,
     desc: {
         name: "Beach",
         icon: "img/loot/loot-throwable-coconut.svg",
@@ -17,7 +16,7 @@ const mapDef: PartialMapDef = {
             { name: "coconut_01", channel: "sfx" },
             { name: "potato_pickup_01", channel: "ui" },
         ],
-        atlases: ["gradient", "loadout", "shared", "main", "beach"],
+        atlases: ["loadout", "shared", "main", "beach"],
     },
     biome: {
         colors: {
@@ -254,6 +253,7 @@ const mapDef: PartialMapDef = {
         randomSpawns: [
             {
                 spawns: [],
+                choose: 0,
             },
         ],
         spawnReplacements: [

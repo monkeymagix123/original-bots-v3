@@ -1,33 +1,39 @@
 import * as PIXI from "pixi.js-legacy";
-import { type MapDef, MapDefs } from "../../shared/defs/mapDefs";
-import { MapObjectDefs } from "../../shared/defs/mapObjectDefs";
-import type { BuildingDef, ObstacleDef } from "../../shared/defs/mapObjectsTyping";
-import { GameConfig } from "../../shared/gameConfig";
-import type { GroundPatch, MapMsg } from "../../shared/net/mapMsg";
-import { type Circle, type Collider, coldet } from "../../shared/utils/coldet";
-import { collider } from "../../shared/utils/collider";
-import { mapHelpers } from "../../shared/utils/mapHelpers";
-import { math } from "../../shared/utils/math";
-import type { River } from "../../shared/utils/river";
-import { generateJaggedAabbPoints, generateTerrain } from "../../shared/utils/terrainGen";
-import { util } from "../../shared/utils/util";
-import { type Vec2, v2 } from "../../shared/utils/v2";
-import type { Ambiance } from "./ambiance";
-import type { AudioManager } from "./audioManager";
-import type { Camera } from "./camera";
-import type { DebugRenderOpts } from "./config";
-import { renderSpline } from "./debug/debugHelpers";
-import { debugLines } from "./debug/debugLines";
-import { device } from "./device";
-import { Building } from "./objects/building";
-import type { DecalBarn } from "./objects/decal";
-import { Pool } from "./objects/objectPool";
-import { Obstacle } from "./objects/obstacle";
-import type { Emitter, ParticleBarn } from "./objects/particles";
-import type { Player, PlayerBarn } from "./objects/player";
-import type { SmokeParticle } from "./objects/smoke";
-import { Structure } from "./objects/structure";
-import type { Renderer } from "./renderer";
+import { type MapDef, type MapDefKey, MapDefs } from "../../shared/defs/mapDefs.ts";
+import type { BuildingDef } from "../../shared/defs/mapObjects/buildings/buildingDefs.ts";
+import type { ObstacleDef } from "../../shared/defs/mapObjects/obstacles/obstacleDefs.ts";
+import type { SurfaceData, SurfaceType } from "../../shared/defs/mapObjectsTyping.ts";
+import { MapObjectDefs } from "../../shared/defs/register.ts";
+import { GameConfig } from "../../shared/gameConfig.ts";
+import type { GroundPatch, MapMsg } from "../../shared/net/mapMsg.ts";
+import { coldet, type Collider } from "../../shared/utils/coldet.ts";
+import { collider } from "../../shared/utils/collider.ts";
+import { mapHelpers } from "../../shared/utils/mapHelpers.ts";
+import { math } from "../../shared/utils/math.ts";
+import type { River } from "../../shared/utils/river.ts";
+import {
+    generateJaggedAabbPoints,
+    generateJaggedCirclePoints,
+    generateTerrain,
+} from "../../shared/utils/terrainGen.ts";
+import { util } from "../../shared/utils/util.ts";
+import { v2, type Vec2 } from "../../shared/utils/v2.ts";
+import type { Ambiance } from "./ambiance.ts";
+import type { AudioManager } from "./audioManager.ts";
+import type { Camera } from "./camera.ts";
+import type { DebugRendererOpts } from "./config.ts";
+import { renderSpline } from "./debug/debugHelpers.ts";
+import { debugLines } from "./debug/debugLines.ts";
+import { device } from "./device.ts";
+import { Building } from "./objects/building.ts";
+import type { DecalBarn } from "./objects/decal.ts";
+import { Pool } from "./objects/objectPool.ts";
+import { Obstacle } from "./objects/obstacle.ts";
+import type { Emitter, ParticleBarn } from "./objects/particles.ts";
+import type { Player, PlayerBarn } from "./objects/player.ts";
+import type { SmokeParticle } from "./objects/smoke.ts";
+import { Structure } from "./objects/structure.ts";
+import type { Renderer } from "./renderer.ts";
 
 // Drawing
 
@@ -45,20 +51,36 @@ function tracePath(canvas: PIXI.Graphics, path: Vec2[]) {
     canvas.closePath();
 }
 function traceGroundPatch(canvas: PIXI.Graphics, patch: GroundPatch, seed: number) {
-    const width = patch.max.x - patch.min.x;
-    const height = patch.max.y - patch.min.y;
-
     const offset = math.max(patch.offsetDist, 0.001);
     const roughness = patch.roughness;
-
-    const divisionsX = Math.round((width * roughness) / offset);
-    const divisionsY = Math.round((height * roughness) / offset);
-
     const seededRand = util.seededRand(seed);
-    tracePath(
-        canvas,
-        generateJaggedAabbPoints(patch, divisionsX, divisionsY, offset, seededRand),
-    );
+
+    if (patch.bound.type === collider.Type.Circle) {
+        const divisions = Math.round(
+            (2 * Math.PI * patch.bound.rad * roughness) / offset,
+        );
+
+        tracePath(
+            canvas,
+            generateJaggedCirclePoints(
+                patch.bound.pos,
+                patch.bound.rad,
+                divisions,
+                offset,
+                seededRand,
+            ),
+        );
+    } else {
+        const width = patch.bound.max.x - patch.bound.min.x;
+        const height = patch.bound.max.y - patch.bound.min.y;
+        const divisionsX = Math.round((width * roughness) / offset);
+        const divisionsY = Math.round((height * roughness) / offset);
+
+        tracePath(
+            canvas,
+            generateJaggedAabbPoints(patch.bound, divisionsX, divisionsY, offset, seededRand),
+        );
+    }
 }
 
 function renderRiverDebug(river: River, playerPos: Vec2) {
@@ -104,7 +126,7 @@ export class Map {
         ground: new PIXI.Graphics(),
     };
 
-    mapName = "";
+    mapName = "" as MapDefKey;
     mapDef = {} as MapDef;
     factionMode = false;
     potatoMode = false;
@@ -179,7 +201,7 @@ export class Map {
     ) {
         this.mapName = mapMsg.mapName;
         // Clone the source mapDef
-        const mapDef = MapDefs[this.mapName as keyof typeof MapDefs];
+        const mapDef = MapDefs[this.mapName];
         if (!mapDef) {
             throw new Error(`Failed loading mapDef ${this.mapName}`);
         }
@@ -240,7 +262,7 @@ export class Map {
         renderer: Renderer,
         camera: Camera,
         _smokeParticles: SmokeParticle[],
-        debug: DebugRenderOpts,
+        debug: DebugRendererOpts,
     ) {
         const obstacles = this.m_obstaclePool.m_getPool();
         for (let i = 0; i < obstacles.length; i++) {
@@ -378,17 +400,29 @@ export class Map {
         }
 
         // River shore
-        groundGfx.beginFill(mapColors.riverbank);
 
         // groundGfx.lineStyle(2, 0xff0000);
 
         for (let i = 0; i < terrain.rivers.length; i++) {
-            tracePath(groundGfx, terrain.rivers[i].shorePoly);
+            if (!terrain.rivers[i].looped) {
+                groundGfx.beginFill(mapColors.riverbank);
+                tracePath(groundGfx, terrain.rivers[i].shorePoly);
+            } else {
+                groundGfx.beginFill(mapColors.lakeRiverbank ?? mapColors.riverbank);
+                tracePath(groundGfx, terrain.rivers[i].shorePoly);
+            }
         }
         groundGfx.endFill();
-        groundGfx.beginFill(mapColors.water);
+
+        // River water
         for (let b = 0; b < terrain.rivers.length; b++) {
-            tracePath(groundGfx, terrain.rivers[b].waterPoly);
+            if (!terrain.rivers[b].looped) {
+                groundGfx.beginFill(mapColors.water);
+                tracePath(groundGfx, terrain.rivers[b].waterPoly);
+            } else {
+                groundGfx.beginFill(mapColors.lakeWater ?? mapColors.water);
+                tracePath(groundGfx, terrain.rivers[b].waterPoly);
+            }
         }
         groundGfx.endFill();
 
@@ -459,31 +493,29 @@ export class Map {
     }
 
     getMinimapRender(obj: (typeof this.mapData.objects)[number]) {
-        const def = MapObjectDefs[obj.type] as ObstacleDef | BuildingDef;
+        const def = MapObjectDefs.typeToDef(obj.type) as ObstacleDef | BuildingDef;
         const zIdx = def.type == "building" ? 750 + (def.zIdx || 0) : def.img.zIdx || 0;
         let shapes: Array<{
             scale?: number;
             color: number;
-            collider: Circle;
+            collider: Collider;
         }> = [];
-        if ((def as BuildingDef).map?.shapes !== undefined) {
-            // @ts-expect-error stfu
-            shapes = (def as BuildingDef).map?.shapes!;
+        if (def.map && "shapes" in def.map && def.map.shapes) {
+            shapes = def.map.shapes;
         } else {
             let col = null;
             if (
-                (col =
-                    def.type == "obstacle"
-                        ? def.collision
-                        : def.ceiling.zoomRegions.length > 0 &&
-                            def.ceiling.zoomRegions[0].zoomIn
-                          ? def.ceiling.zoomRegions[0].zoomIn
-                          : mapHelpers.getBoundingCollider(obj.type))
+                (col = def.type == "obstacle"
+                    ? def.collision
+                    : def.ceiling.zoomRegions.length > 0
+                            && def.ceiling.zoomRegions[0].zoomIn
+                    ? def.ceiling.zoomRegions[0].zoomIn
+                    : mapHelpers.getBoundingCollider(obj.type))
             ) {
                 shapes.push({
-                    collider: collider.copy(col) as Circle,
-                    scale: def.map?.scale! || 1,
-                    color: def.map?.color!,
+                    collider: collider.copy(col),
+                    scale: def.map!.scale || 1,
+                    color: def.map!.color!,
                 });
             }
         }
@@ -508,6 +540,7 @@ export class Map {
                 }
                 screenScale *= math.min(device.pixelRatio, 2);
             }
+            screenScale = math.max(screenScale, 1);
             const scale = this.height / screenScale;
 
             // Background
@@ -632,7 +665,7 @@ export class Map {
                     resolution: 1,
                 });
             }
-            mapRender.scale = new PIXI.Point(
+            mapRender.scale.set(
                 screenScale / this.height,
                 screenScale / this.height,
             );
@@ -658,23 +691,42 @@ export class Map {
     }
 
     getGroundSurface(pos: Vec2, layer: number) {
-        const groundSurface = (type: string, data: Record<string, any> = {}) => {
+        type Surface = {
+            type: "water";
+            data: {
+                waterColor: number;
+                rippleColor: number;
+                isBright?: boolean;
+                river?: River;
+            };
+        } | {
+            type: Exclude<SurfaceType, "water">;
+            data: {
+                waterColor?: number;
+                rippleColor?: number;
+                isBright?: boolean;
+                river?: River;
+            };
+        };
+        const groundSurface = (type: SurfaceType, data: SurfaceData & { river?: River } = {}) => {
             if (type == "water") {
                 const mapColors = this.getMapDef().biome.colors;
-                data.waterColor =
-                    data.waterColor !== undefined ? data.waterColor : mapColors.water;
-                data.rippleColor =
-                    data.rippleColor !== undefined
-                        ? data.rippleColor
-                        : mapColors.waterRipple;
+                const isLake = data.river?.looped ?? false;
+                data.waterColor = data.waterColor !== undefined
+                    ? data.waterColor
+                    : isLake
+                    ? (mapColors.lakeWater ?? mapColors.water)
+                    : mapColors.water;
+                data.rippleColor = data.rippleColor !== undefined
+                    ? data.rippleColor
+                    : isLake
+                    ? (mapColors.lakeWaterRipple ?? mapColors.waterRipple)
+                    : mapColors.waterRipple;
             }
             return {
                 type,
                 data,
-            } as {
-                type: string;
-                data: Required<typeof data>;
-            };
+            } as Surface;
         };
 
         // Check decals
@@ -682,10 +734,10 @@ export class Map {
         for (let i = 0; i < decals.length; i++) {
             const decal = decals[i];
             if (
-                decal.active &&
-                decal.surface &&
-                util.sameLayer(decal.layer, layer) &&
-                collider.intersectCircle(decal.collider, pos, 0.0001)
+                decal.active
+                && decal.surface
+                && util.sameLayer(decal.layer, layer)
+                && collider.intersectCircle(decal.collider, pos, 0.0001)
             ) {
                 return groundSurface(decal.surface.type, decal.surface.data);
             }
@@ -699,11 +751,11 @@ export class Map {
         for (let i = 0; i < buildings.length; i++) {
             const building = buildings[i];
             if (
-                building.active &&
-                building.zIdx >= zIdx &&
+                building.active
+                && building.zIdx >= zIdx
                 // Prioritize layer0 building surfaces when on stairs
-                (building.layer == layer || !!onStairs) &&
-                (building.layer != 1 || !onStairs)
+                && (building.layer == layer || !!onStairs)
+                && (building.layer != 1 || !onStairs)
             ) {
                 for (let i = 0; i < building.surfaces.length; i++) {
                     const s = building.surfaces[i];
@@ -725,13 +777,13 @@ export class Map {
         // Check rivers
         let onRiverShore = false;
         if (layer != 1) {
-            const rivers = this.terrain?.rivers!;
+            const rivers = this.terrain!.rivers;
             for (let v = 0; v < rivers.length; v++) {
                 const river = rivers[v];
                 if (
-                    coldet.testPointAabb(pos, river.aabb.min, river.aabb.max) &&
-                    math.pointInsidePolygon(pos, river.shorePoly) &&
-                    ((onRiverShore = true), math.pointInsidePolygon(pos, river.waterPoly))
+                    coldet.testPointAabb(pos, river.aabb.min, river.aabb.max)
+                    && math.pointInsidePolygon(pos, river.shorePoly)
+                    && ((onRiverShore = true), math.pointInsidePolygon(pos, river.waterPoly))
                 ) {
                     return groundSurface("water", {
                         river,
@@ -742,22 +794,22 @@ export class Map {
         // Check terrain
         return groundSurface(
             // Use a stone step sound if we're in the main-spring def
-            math.pointInsidePolygon(pos, this.terrain?.grass!)
+            math.pointInsidePolygon(pos, this.terrain!.grass)
                 ? onRiverShore
                     ? this.mapDef.biome.sound.riverShore
                     : "grass"
-                : math.pointInsidePolygon(pos, this.terrain?.shore!)
-                  ? "sand"
-                  : "water",
+                : math.pointInsidePolygon(pos, this.terrain!.shore)
+                ? "sand"
+                : "water",
         );
     }
 
     isInOcean(pos: Vec2) {
-        return !math.pointInsidePolygon(pos, this.terrain?.shore!);
+        return !math.pointInsidePolygon(pos, this.terrain!.shore);
     }
 
     distanceToShore(pos: Vec2) {
-        return math.distToPolygon(pos, this.terrain?.shore!);
+        return math.distToPolygon(pos, this.terrain!.shore);
     }
 
     insideStructureStairs(collision: Collider) {
@@ -798,10 +850,10 @@ export class Map {
         for (let i = 0; i < buildings.length; i++) {
             const building = buildings[i];
             if (
-                building.active &&
-                (!checkVisible ||
-                    (building.ceiling.visionTicker > 0 && !building.ceilingDead)) &&
-                building.isInsideCeiling(collision)
+                building.active
+                && (!checkVisible
+                    || (building.ceiling.visionTicker > 0 && !building.ceilingDead))
+                && building.isInsideCeiling(collision)
             ) {
                 return true;
             }

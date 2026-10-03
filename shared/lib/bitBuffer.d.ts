@@ -1,4 +1,4 @@
-import type { Buffer } from "buffer";
+import type { Buffer } from "node:buffer";
 export declare class BitView {
     constructor(buffer: ArrayBuffer | Buffer, byteLength?: number);
 

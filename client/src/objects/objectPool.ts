@@ -1,16 +1,25 @@
-import type { BitStream } from "../../../shared/net/net";
-import {
-    type ObjectData,
-    type ObjectsPartialData,
-    ObjectType,
-} from "../../../shared/net/objectSerializeFns";
-import { assert } from "../../../shared/utils/util";
-import { errorLogManager } from "../errorLogs";
-import type { Ctx } from "../game";
+import type { BitStream } from "../../../shared/net/net.ts";
+import { type ObjectData, type ObjectsPartialData, ObjectType } from "../../../shared/net/objectSerializeFns.ts";
+import { assert } from "../../../shared/utils/util.ts";
+import { errorLogManager } from "../errorLogs.ts";
+import type { Ctx } from "../game.ts";
 
-import type { AbstractObject } from "./player";
+export abstract class AbstractObject {
+    abstract __id: number;
+    abstract __type: ObjectType;
+    abstract active: boolean;
 
-type C<T extends AbstractObject> = new () => T;
+    abstract m_init(): void;
+    abstract m_free(): void;
+    abstract m_updateData(
+        data: ObjectData<ObjectType>,
+        fullUpdate: boolean,
+        isNew: boolean,
+        ctx: Ctx,
+    ): void;
+}
+
+type C<T extends AbstractObject> = new() => T;
 
 export class Pool<T extends AbstractObject> {
     m_pool: T[] = [];

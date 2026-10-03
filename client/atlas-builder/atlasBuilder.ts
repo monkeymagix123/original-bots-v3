@@ -6,13 +6,13 @@ import Path from "node:path";
 
 import { loadImage } from "canvas";
 import type { ISpritesheetData } from "pixi.js-legacy";
-import type { Atlas } from "../../shared/defs/mapDefs";
-import { Logger } from "../../shared/utils/logger";
-import { util } from "../../shared/utils/util";
-import { Atlases, type AtlasRes, scaledSprites } from "./atlasDefs";
-import type { MainToWorkerMsg, WorkerToMainMsg } from "./atlasWorker";
-import type { Edges } from "./detectEdges";
-import type { ParentMsg } from "./imageWorker";
+import type { Atlas } from "../../shared/defs/mapDefs.ts";
+import { Logger } from "../../shared/utils/logger.ts";
+import { util } from "../../shared/utils/util.ts";
+import { Atlases, type AtlasRes, scaledSprites } from "./atlasDefs.ts";
+import type { MainToWorkerMsg, WorkerToMainMsg } from "./atlasWorker.ts";
+import type { Edges } from "./detectEdges.ts";
+import type { ParentMsg } from "./imageWorker.ts";
 
 export const cacheFolder = Path.resolve(
     import.meta.dirname,
@@ -32,6 +32,8 @@ export const atlasLogger = new Logger(
 
 export const imagesCacheFolder = Path.join(cacheFolder, "img");
 export const atlasesCacheFolder = Path.join(cacheFolder, "atlases");
+
+export const atlasFormat = "webp" as const;
 
 export const imageFolder = Path.resolve(import.meta.dirname, "../public/img");
 
@@ -127,14 +129,20 @@ export class ImageManager {
             const images = imagesToRender.splice(0, imagesPerThread);
             imagesPerThread = Math.ceil(imagesToRender.length / threadsLeft);
 
-            const proc = cp.fork(Path.resolve(import.meta.dirname, "imageWorker.ts"), {
-                execArgv: ["--import", "tsx"],
-            });
+            const proc = cp.fork(Path.resolve(import.meta.dirname, "imageWorker.ts"));
 
-            const promise = new Promise<void>((resolve) => {
-                proc.send({
-                    images,
-                } satisfies ParentMsg);
+            const promise = new Promise<void>((resolve, reject) => {
+                proc.on("exit", (code) => {
+                    if (code !== 0) {
+                        reject();
+                    }
+                });
+
+                proc.send(
+                    {
+                        images,
+                    } satisfies ParentMsg,
+                );
 
                 proc.on("message", (msg: ImgCache) => {
                     Object.assign(this.cache, msg);
@@ -194,6 +202,11 @@ export class AtlasManager {
 
     imageCache = new ImageManager();
 
+    isProduction: boolean;
+    constructor(isProduction: boolean) {
+        this.isProduction = isProduction;
+    }
+
     loadFromDisk() {
         this.imageCache.loadFromDisk();
     }
@@ -228,7 +241,7 @@ export class AtlasManager {
             images.set(image, true);
         }
 
-        let atlasHash = `${ATLAS_HASH_VERSION}`;
+        let atlasHash = `${ATLAS_HASH_VERSION}-${atlasFormat}-${this.isProduction}`;
         for (const file of atlasDef.images) {
             const imagePath = Path.join(imageFolder, file);
             if (!fs.existsSync(imagePath)) {
@@ -241,8 +254,8 @@ export class AtlasManager {
             const hash = `${hashBuff(data)}-${100 * scale}`;
 
             if (
-                this.imageCache.get(file)?.hash !== hash ||
-                !fs.existsSync(Path.join(imagesCacheFolder, `${hash}.png`))
+                this.imageCache.get(file)?.hash !== hash
+                || !fs.existsSync(Path.join(imagesCacheFolder, `${hash}.png`))
             ) {
                 this.imageCache.queueImage(file, hash);
             }
@@ -300,11 +313,16 @@ export class AtlasManager {
 
             const proc = cp.fork(Path.resolve(import.meta.dirname, "atlasWorker.ts"), {
                 serialization: "advanced",
-                execArgv: ["--import", "tsx"],
             });
 
-            const promise = new Promise<void>((resolve) => {
-                proc.send(atlases satisfies MainToWorkerMsg);
+            const promise = new Promise<void>((resolve, reject) => {
+                proc.on("exit", (code) => {
+                    if (code !== 0) {
+                        reject();
+                    }
+                });
+
+                proc.send({ isProduction: this.isProduction, atlases } satisfies MainToWorkerMsg);
 
                 proc.on("message", (msg: WorkerToMainMsg) => {
                     const data = msg;

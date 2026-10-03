@@ -1,5 +1,7 @@
+import type { GameConfig } from "../../gameConfig.ts";
+
 export interface BulletDef {
-    readonly type: "bullet";
+    type: "bullet";
     damage: number;
     obstacleDamage: number;
     falloff: number;
@@ -7,7 +9,7 @@ export interface BulletDef {
     speed: number;
     variance: number;
     shrapnel: boolean;
-    tracerColor: string;
+    tracerColor: keyof typeof GameConfig["tracerColors"];
     tracerWidth: number;
     tracerLength: number;
     suppressed?: boolean;
@@ -66,7 +68,7 @@ export const BaseDefs: Record<string, BulletDef> = {
         obstacleDamage: 1,
         falloff: 0.94,
         distance: 300,
-        speed: 110,
+        speed: 120,
         variance: 0,
         shrapnel: false,
         tracerColor: "762mm",
@@ -436,6 +438,45 @@ export const BaseDefs: Record<string, BulletDef> = {
         tracerWidth: 0.12,
         tracerLength: 0.8,
     },
+    bullet_barrett: {
+        type: "bullet",
+        damage: 99,
+        obstacleDamage: 3,
+        falloff: 0.975,
+        distance: 400,
+        speed: 214,
+        variance: 0,
+        shrapnel: false,
+        tracerColor: "50AE",
+        tracerWidth: 0.225,
+        tracerLength: 1.2,
+    },
+    bullet_sw500: {
+        type: "bullet",
+        damage: 64,
+        obstacleDamage: 1,
+        falloff: 0.92,
+        speed: 150,
+        distance: 160,
+        variance: 0,
+        shrapnel: false,
+        tracerColor: "50AE",
+        tracerWidth: 0.16,
+        tracerLength: 0.95,
+    },
+    bullet_ash12: {
+        type: "bullet",
+        damage: 31,
+        obstacleDamage: 1,
+        falloff: 0.875,
+        speed: 85,
+        distance: 70,
+        variance: 0,
+        shrapnel: false,
+        tracerColor: "50AE",
+        tracerWidth: 0.12,
+        tracerLength: 0.7,
+    },
     bullet_mac10: {
         type: "bullet",
         damage: 9.25,
@@ -451,7 +492,7 @@ export const BaseDefs: Record<string, BulletDef> = {
     },
     bullet_ump9: {
         type: "bullet",
-        damage: 15,
+        damage: 14.5,
         obstacleDamage: 1,
         falloff: 0.75,
         distance: 100,
@@ -636,7 +677,7 @@ export const BaseDefs: Record<string, BulletDef> = {
     },
     bullet_l86: {
         type: "bullet",
-        damage: 27,
+        damage: 25,
         obstacleDamage: 1,
         falloff: 0.9,
         distance: 425,

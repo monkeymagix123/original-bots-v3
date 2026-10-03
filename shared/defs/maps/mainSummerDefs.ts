@@ -1,6 +1,6 @@
-import { util } from "../../utils/util";
-import type { MapDef } from "../mapDefs";
-import { Main, type PartialMapDef } from "./baseDefs";
+import { util } from "../../utils/util.ts";
+import type { MapDef } from "../mapDefs.ts";
+import { Main, type PartialMapDef } from "./baseDefs.ts";
 
 const mapDef: PartialMapDef = {
     assets: {
@@ -11,10 +11,13 @@ const mapDef: PartialMapDef = {
                 name: "ambient_steam_01",
                 channel: "ambient",
             },
+            { name: "log_05", channel: "sfx" },
             { name: "log_11", channel: "sfx" },
             { name: "log_12", channel: "sfx" },
+            { name: "vault_change_03", channel: "sfx" },
+            { name: "watering_01", channel: "sfx" },
         ],
-        atlases: ["gradient", "loadout", "shared", "main"],
+        atlases: ["loadout", "shared", "main"],
     },
     biome: {
         colors: {

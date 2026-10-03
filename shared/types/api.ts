@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { MapDefs } from "../defs/mapDefs";
-import type { TeamMode } from "../gameConfig";
+import type { MapDefKey } from "../defs/mapDefs.ts";
+import type { TeamMode } from "../gameConfig.ts";
 
 export const zFindGameBody = z.object({
     region: z.string(),
@@ -15,50 +15,72 @@ export const zFindGameBody = z.object({
 export type FindGameBody = z.infer<typeof zFindGameBody>;
 
 export interface FindGameMatchData {
-    zone: string;
-    gameId: string;
-    useHttps: boolean;
-    hosts: string[];
-    addrs: string[];
-    data: string;
+    urls: string[];
+    joinToken: string;
 }
 
+export const loadoutSchema = z.object({
+    outfit: z.string(),
+    melee: z.string(),
+    heal: z.string(),
+    boost: z.string(),
+    player_icon: z.string(),
+    crosshair: z.object({
+        type: z.string(),
+        color: z.number(),
+        size: z.string(),
+        stroke: z.string(),
+    }),
+    emotes: z.array(z.string()).length(6),
+});
+
 export type FindGameError =
-    | "invalid_ip"
-    | "find_game_failed"
-    | "mode_disabled"
-    | "invalid_region"
-    | "failed_to_parse_body"
-    | "full"
-    | "invalid_protocol"
-    | "join_game_failed"
-    | "rate_limited"
     | "banned"
     | "behind_proxy"
-    | "invalid_captcha";
+    | "find_game_failed"
+    | "full"
+    | "invalid_captcha"
+    | "invalid_ip"
+    | "invalid_protocol"
+    | "invalid_region"
+    | "join_game_failed"
+    | "mode_disabled"
+    | "rate_limited";
+
+export type FindGamePrivateError =
+    | "find_game_failed"
+    | "full"
+    | "invalid_protocol"
+    | "invalid_region";
+
+export type GameWsDisconnectReason =
+    | "behind_proxy"
+    | "full"
+    | "host_closed"
+    | "invalid_packet"
+    | "invalid_protocol"
+    | "invalid_token"
+    | "ip_banned"
+    | "player_not_found"
+    | "rate_limited"
+    | "server_crashed"
+    | "server_restart";
 
 export type FindGameResponse =
     | {
-          res: FindGameMatchData[];
-          error?: undefined;
-
-          banned?: undefined;
-      }
+        type: "success";
+        res: FindGameMatchData;
+    }
     | {
-          error: FindGameError;
-
-          res?: undefined;
-          banned?: undefined;
-      }
+        type: "error";
+        error: FindGameError;
+    }
     | {
-          banned: true;
-          reason: string;
-          permanent: boolean;
-          expiresIn: Date | string;
-
-          res?: undefined;
-          error?: undefined;
-      };
+        type: "banned";
+        reason: string;
+        permanent: boolean;
+        expiresIn: Date | string;
+    };
 
 export interface SiteInfoRes {
     country: string;
@@ -69,7 +91,7 @@ export interface SiteInfoRes {
         teamMode: TeamMode;
         enabled: boolean;
     }>;
-    clientTheme: keyof typeof MapDefs;
+    clientTheme: MapDefKey;
     pops: Record<
         string,
         {

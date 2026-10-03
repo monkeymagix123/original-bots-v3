@@ -1,10 +1,6 @@
-import { type BotPersonality, type BotPlaystyle, playstyleModifiers } from "./botBrain";
-import {
-    type BotDifficulty,
-    type BotSkillProfile,
-    getBotSkillProfile,
-} from "./botDifficulty";
-import type { BotRandom } from "./botRandom";
+import { type BotPersonality, type BotPlaystyle, playstyleModifiers } from "./botBrain.ts";
+import { type BotDifficulty, type BotSkillProfile, getBotSkillProfile } from "./botDifficulty.ts";
+import type { BotRandom } from "./botRandom.ts";
 
 const playstyles: readonly BotPlaystyle[] = [
     "aggressive",

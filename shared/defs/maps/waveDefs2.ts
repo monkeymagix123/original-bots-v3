@@ -1,9 +1,10 @@
-import { GameConfig } from "../../gameConfig";
-import { util } from "../../utils/util";
-import { v2 } from "../../utils/v2";
-import type { MapDef } from "../mapDefs";
-import { MapId } from "../types/misc";
-import { Main, type PartialMapDef } from "./baseDefs";
+import { GameConfig } from "../../gameConfig.ts";
+import { MapId } from "../../gameConfig.ts";
+import { util } from "../../utils/util.ts";
+import type { DeepPartial } from "../../utils/util.ts";
+import { v2 } from "../../utils/v2.ts";
+import type { MapDef } from "../mapDefs.ts";
+import { Main } from "./baseDefs.ts";
 
 export const Wave2: MapDef = {
     mapId: MapId.Wave2,
@@ -32,9 +33,10 @@ export const Wave2: MapDef = {
     desc: { name: "Wave2", icon: "", buttonCss: "", backgroundImg: "" },
     assets: {
         audio: [],
-        atlases: ["gradient", "loadout", "shared", "main"],
+        atlases: ["loadout", "shared", "main"],
     },
     biome: {
+        ambience: Main.biome.ambience,
         colors: {
             background: 2118510,
             water: 3310251,
@@ -77,8 +79,8 @@ export const Wave2: MapDef = {
     // ? are guesses based on statistics
     // ! are uncertain data based on leak
     lootTable: {
-        tier_world: [],
-        tier_surviv: [],
+        tier_world: [{ name: "", count: 1, weight: 1 }],
+        tier_surviv: [{ name: "", count: 1, weight: 1 }],
         tier_container: [
             { name: "tier_guns", count: 1, weight: 0.29 },
             { name: "tier_ammo", count: 1, weight: 0.04 },
@@ -490,7 +492,7 @@ export const Wave2: MapDef = {
             grassInset: 18,
             rivers: {
                 lakes: [],
-                weights: [],
+                weights: [{ widths: [], weight: 1 }],
                 smoothness: 0.45,
                 spawnCabins: false,
                 masks: [],

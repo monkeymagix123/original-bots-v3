@@ -1,16 +1,16 @@
-import { GameObjectDefs } from "../../../../shared/defs/gameObjectDefs";
-import type { GunDef } from "../../../../shared/defs/gameObjects/gunDefs";
-import type { WaveEntry } from "../../../../shared/defs/mapDefs";
-import { GameConfig } from "../../../../shared/gameConfig";
-import { Config } from "../../config";
-import type { Game } from "../game";
-import type { Player } from "../objects/player";
-import { BotAgent } from "./botAgent";
-import { type BotBrainType, type BotPlaystyle, playstyleForBrain } from "./botBrain";
-import type { BotDifficulty } from "./botDifficulty";
-import { createBotProfile } from "./botProfile";
-import { BotRandom } from "./botRandom";
-import type { BotTelemetrySnapshot } from "./botTelemetry";
+import type { GunDef } from "../../../../shared/defs/gameObjects/gunDefs.ts";
+import type { WaveEntry } from "../../../../shared/defs/mapDefs.ts";
+import { GameObjectDefs } from "../../../../shared/defs/register.ts";
+import { GameConfig } from "../../../../shared/gameConfig.ts";
+import { Config } from "../../config.ts";
+import type { Game } from "../game.ts";
+import type { Player } from "../objects/player.ts";
+import { BotAgent } from "./botAgent.ts";
+import { type BotBrainType, type BotPlaystyle, playstyleForBrain } from "./botBrain.ts";
+import type { BotDifficulty } from "./botDifficulty.ts";
+import { createBotProfile } from "./botProfile.ts";
+import { BotRandom } from "./botRandom.ts";
+import type { BotTelemetrySnapshot } from "./botTelemetry.ts";
 
 export interface SpawnBotOptions {
     difficulty?: BotDifficulty;
@@ -60,16 +60,15 @@ export class BotManager {
         const botRng = new BotRandom(seed);
         let difficulty = options.difficulty ?? Config.bots.difficulty;
         if (
-            !options.difficulty &&
-            difficulty !== "diagnostic" &&
-            botRng.chance(Config.bots.proChance)
+            !options.difficulty
+            && difficulty !== "diagnostic"
+            && botRng.chance(Config.bots.proChance)
         ) {
             difficulty = "expert";
         }
-        const requestedPlaystyle =
-            options.playstyle ??
-            Config.bots.playstyle ??
-            (options.brain ? playstyleForBrain(options.brain) : undefined);
+        const requestedPlaystyle = options.playstyle
+            ?? Config.bots.playstyle
+            ?? (options.brain ? playstyleForBrain(options.brain) : undefined);
         const { profile, personality } = createBotProfile(
             difficulty,
             botRng,
@@ -134,7 +133,9 @@ export class BotManager {
             this.updateWaves(dt);
             return;
         }
-        if (!Config.bots.enabled || this.game.started) return;
+        // The match starts as soon as the first opponent joins. Finish the requested
+        // population while joins remain open, using spawnedRegular to prevent refills.
+        if (!Config.bots.enabled || (this.game.started && !this.game.canJoin)) return;
         const humans = this.countHumans();
         if (humans < Config.bots.minHumansToEnable) return;
         const capacity = Math.max(
@@ -174,8 +175,7 @@ export class BotManager {
 
         this.spawnBudget += dt * Math.max(0.1, Config.bots.spawnPerSecond);
         while (this.waveSpawnRemaining > 0 && this.spawnBudget >= 1) {
-            const brain =
-                this.waveBrainQueue.shift() ?? this.pickWaveBrain(this.waveEntry!);
+            const brain = this.waveBrainQueue.shift() ?? this.pickWaveBrain(this.waveEntry!);
             this.spawnBot({
                 brain,
                 difficulty: this.waveEntry!.difficulty ?? Config.bots.difficulty,
@@ -192,12 +192,12 @@ export class BotManager {
 
     private pickWaveBrain(entry: WaveEntry): BotBrainType {
         if (Config.bots.brainMix.force) return Config.bots.brainMix.force;
-        const weights = entry.brains ??
-            Config.bots.brainMix.weights ?? {
-                practice: 0.15,
-                realistic: 0.8,
-                competitive: 0.05,
-            };
+        const weights = entry.brains
+            ?? Config.bots.brainMix.weights ?? {
+            practice: 0.15,
+            realistic: 0.8,
+            competitive: 0.05,
+        };
         const choices: BotBrainType[] = ["practice", "realistic", "competitive"];
         const total = choices.reduce(
             (sum, key) => sum + Math.max(0, weights[key] ?? 0),
@@ -241,17 +241,18 @@ export class BotManager {
 
     private removeFinishedAgents(): void {
         for (const player of this.agents.keys()) {
-            if (!this.game.playerBarn.players.includes(player))
+            if (!this.game.playerBarn.players.includes(player)) {
                 this.agents.delete(player);
+            }
         }
     }
 
     private giveStartingEquipment(player: Player): void {
         if (!Config.bots.giveStartingWeapons) return;
         const requestedWeapon = Config.bots.preferredWeapon ?? "mp5";
-        const requestedDef = GameObjectDefs[requestedWeapon];
+        const requestedDef = GameObjectDefs.typeToDefSafe(requestedWeapon);
         const weaponType = requestedDef?.type === "gun" ? requestedWeapon : "mp5";
-        const gun = GameObjectDefs[weaponType] as GunDef;
+        const gun = GameObjectDefs.typeToDefSafe(weaponType) as GunDef;
         player.weaponManager.setWeapon(
             GameConfig.WeaponSlot.Primary,
             weaponType,

@@ -9,6 +9,7 @@ on:
     branches:
       - main
       - beta
+      - offline-mode
 
 jobs:
   pages:
@@ -24,15 +25,19 @@ jobs:
         with:
           ref: main
           path: main
-      
+
       - name: Checkout Repository - Beta
         uses: actions/checkout@v6
         with:
           ref: beta
           path: beta
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: ./main/package.json
 
@@ -42,7 +47,7 @@ jobs:
 
       - name: Restore Atlas Cache
         id: cache-atlases-restore
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         if: always()
         with:
           path: ./main/client/node_modules/.atlas-cache/
@@ -56,7 +61,7 @@ jobs:
         if: always()
       - name: Save Atlas Cache
         id: cache-atlases-save
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: ./main/client/node_modules/.atlas-cache/
           key: atlas-cache-main-${{ github.run_id }}
@@ -70,7 +75,7 @@ jobs:
         run: pnpm install --filter client --filter shared --filter server
 
       - name: Restore Beta Atlas Cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ./beta/client/node_modules/.atlas-cache/
           key: atlas-cache-beta-${{ github.run_id }}
@@ -82,12 +87,12 @@ jobs:
         run: pnpm run build
 
       - name: Save Beta Atlas Cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         if: always()
         with:
           path: ./beta/client/node_modules/.atlas-cache/
           key: atlas-cache-beta-${{ github.run_id }}
-      
+
       # -------------------------
       # Combine builds
       #
@@ -106,15 +111,15 @@ jobs:
 
           mkdir -p ./pages/beta
           cp -r ./beta/client/dist/. ./pages/beta/
-      
+
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: "./pages"
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -1,13 +1,13 @@
-import { GameConfig } from "../../gameConfig";
-import { util } from "../../utils/util";
-import type { MapDef } from "../mapDefs";
-import { Main, type PartialMapDef } from "./baseDefs";
+import { GameConfig } from "../../gameConfig.ts";
+import { util } from "../../utils/util.ts";
+import type { MapDef } from "../mapDefs.ts";
+import { Main, type PartialMapDef } from "./baseDefs.ts";
 
 const mapDef: PartialMapDef = {
     desc: {
-        backgroundImg: "img/main_splash_0_6_10.png",
         icon: "img/loot/loot-throwable-snowball.svg",
         buttonCss: "btn-mode-snow",
+        backgroundImg: "img/splashes/snow.webp",
     },
     assets: {
         audio: [
@@ -17,7 +17,7 @@ const mapDef: PartialMapDef = {
             { name: "bells_01", channel: "ui" },
             { name: "snowball_pickup_01", channel: "ui" },
         ],
-        atlases: ["gradient", "loadout", "shared", "snow"],
+        atlases: ["loadout", "shared", "snow"],
     },
     biome: {
         colors: {

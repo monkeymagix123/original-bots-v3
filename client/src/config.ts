@@ -1,9 +1,12 @@
-import type { MapDefs } from "../../shared/defs/mapDefs";
-import { GameConfig } from "../../shared/gameConfig";
-import loadout from "../../shared/utils/loadout";
-import { util } from "../../shared/utils/util";
-import { v2 } from "../../shared/utils/v2";
-import type { Locale } from "./ui/localization";
+import { GameConfig } from "../../shared/gameConfig.ts";
+import loadout from "../../shared/utils/loadout.ts";
+import { util } from "../../shared/utils/util.ts";
+import { v2 } from "../../shared/utils/v2.ts";
+
+import type { MapDefKey } from "../../shared/defs/mapDefs.ts";
+import type { Locale } from "./ui/localization.ts";
+
+type AimStyle = "locked" | "anywhere";
 
 export const debugToolsConfig = {
     enabled: false,
@@ -29,7 +32,7 @@ export const debugToolsConfig = {
     preventGameStart: false,
 };
 
-export const debugRenderConfig = {
+export const debugRendererConfig = {
     enabled: false,
     players: false,
     obstacles: false,
@@ -43,6 +46,8 @@ export const debugRenderConfig = {
         waterEdge: false,
         ceiling: false,
         floors: false,
+        minimap: false,
+        goreRegion: false,
     },
     structures: {
         buildingBounds: false,
@@ -50,6 +55,7 @@ export const debugRenderConfig = {
         bridge: false,
         waterEdge: false,
         stairs: false,
+        layerMasks: false,
     },
 };
 
@@ -69,52 +75,69 @@ export const debugHUDConfig = {
         show: false,
         showGraph: false,
     },
+    updateInterval: {
+        show: false,
+        showGraph: false,
+    },
 };
 
-export type DebugRenderOpts = typeof debugRenderConfig;
+export type DebugRendererOpts = typeof debugRendererConfig;
 
 export const BuildingEditorConfig = {
     zoom: 1,
     pos: v2.create(0, 0),
+    layer: 0,
     object: "house_red_01",
-    map: "main" as keyof typeof MapDefs,
-    grid: true,
+    ori: 0,
+    map: "main" as MapDefKey,
+    hideCeilings: false,
+    showGrid: true,
 };
 
 const defaultConfig = {
-    muteAudio: false,
-    masterVolume: 1,
-    soundVolume: 1,
-    musicVolume: 1,
+    anonPlayerNames: false,
     highResTex: true,
     interpolation: true,
     localRotation: false,
+    muteAudio: false,
     screenShake: true,
-    anonPlayerNames: false,
-    touchMoveStyle: "anywhere" as "locked" | "anywhere",
-    touchAimStyle: "anywhere" as "locked" | "anywhere",
+
+    masterVolume: 1,
+    musicVolume: 1,
+    soundVolume: 1,
+
+    touchMoveStyle: "anywhere" as AimStyle,
+    touchAimStyle: "anywhere" as AimStyle,
     touchAimLine: true,
-    profile: null as { slug: string } | null,
+
+    binds: "",
+    clientTheme: "main" as MapDefKey,
+    cachedBgImg: "img/splashes/main.webp",
+    language: "en" as Locale,
     playerName: "",
+    profile: null as { slug: string } | null,
     region: "na",
+    regionSelected: false,
+    sessionCookie: "" as string | null,
+
     gameModeIdx: 2,
     teamAutoFill: true,
-    language: "en" as Locale,
+
+    loadout: loadout.defaultLoadout(),
+    perkModeRole: "",
+
     prerollGamesPlayed: 0,
+    lastNewsTimestamp: 0,
     totalGamesPlayed: 0,
     promptAppRate: true,
-    regionSelected: false,
-    lastNewsTimestamp: 0,
-    perkModeRole: "",
-    loadout: loadout.defaultLoadout(),
-    sessionCookie: "" as string | null,
-    binds: "",
-    cachedBgImg: "img/main_splash.png",
+
     version: 1,
+
     /* STRIP_FROM_PROD_CLIENT:START */
     debugTools: debugToolsConfig,
-    debugRenderer: debugRenderConfig,
+    debugRenderer: debugRendererConfig,
     /* STRIP_FROM_PROD_CLIENT:END */
+
     debugHUD: debugHUDConfig,
     buildingEditor: BuildingEditorConfig,
 };
@@ -125,78 +148,72 @@ export type ConfigKey = keyof ConfigType;
 export class ConfigManager {
     loaded = false;
     localStorageAvailable = true;
-    config = {} as ConfigType;
-    onModifiedListeners: Array<(key?: string) => void> = [];
 
-    load(onLoadCompleteCb: () => void) {
-        const onLoaded = (strConfig: string) => {
+    config = {} as ConfigType;
+
+    onModifiedListeners: Array<(key?: ConfigKey) => void> = [];
+
+    load(cb?: () => void) {
+        const onLoaded = (configStr: string) => {
             let data = {};
             try {
-                data = JSON.parse(strConfig);
-            } catch (_e) {}
-            this.config = util.mergeDeep({}, defaultConfig, data);
+                data = JSON.parse(configStr);
+            } catch (e) {
+                console.warn("Failed to load config.");
+            }
+
+            this.config = util.mergeDeep<ConfigType>({}, defaultConfig, data);
+
             this.checkUpgradeConfig();
             this.onModified();
+
             this.loaded = true;
-            onLoadCompleteCb();
+            cb?.();
         };
-        let storedConfig: string | null = "{}";
+
+        let storedConfig = "{}";
         try {
-            storedConfig = localStorage.getItem("surviv_config")!;
-        } catch (_err) {
+            storedConfig = localStorage.getItem("surviv_config") || "{}";
+        } catch (_e) {
             this.localStorageAvailable = false;
         }
+
         onLoaded(storedConfig);
     }
 
     store() {
         const strData = JSON.stringify(this.config);
         if (this.localStorageAvailable) {
-            // In browsers, like Safari, localStorage setItem is
-            // disabled in private browsing mode.
-            // This try/catch is here to handle that situation.
+            // In browsers like Safari, localStorage setItem is disabled in private browsing mode.
+            // This try / catch addresses such a situation.
             try {
                 localStorage.setItem("surviv_config", strData);
-            } catch (_e) {}
+            } catch (_e) {
+                console.warn("Failed writing config. Options will not be persistent.");
+            }
         }
     }
 
     set<T extends ConfigKey>(key: T, value: ConfigType[T]) {
-        if (!key) {
-            return;
-        }
-        const path = key.split(".");
+        if (!key) return;
 
-        let elem = this.config;
-        while (path.length > 1) {
-            // @ts-expect-error bleh
-            elem = elem[path.shift()];
-        }
-        // @ts-expect-error bleh
-        elem[path.shift()] = value;
+        this.config[key] = value;
 
         this.store();
         this.onModified(key);
     }
 
     get<T extends ConfigKey>(key: T): ConfigType[T] | undefined {
-        if (!key) {
-            return undefined;
-        }
+        if (!key) return undefined;
 
-        const path = key.split(".");
-        let elem = this.config as any;
-        for (let i = 0; i < path.length; i++) {
-            elem = elem[path[i]];
-        }
-        return elem;
+        return this.config[key];
     }
 
-    addModifiedListener(e: (key?: string) => void) {
+    addModifiedListener(e: (key?: ConfigKey) => void) {
         this.onModifiedListeners.push(e);
     }
 
-    onModified(key?: string) {
+    onModified(key?: ConfigKey) {
         for (let i = 0; i < this.onModifiedListeners.length; i++) {
             this.onModifiedListeners[i](key);
         }

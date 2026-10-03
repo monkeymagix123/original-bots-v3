@@ -1,8 +1,7 @@
-import type { AtlasDef } from "../atlasDefs";
-import { BuildingSprites } from "./buildings";
+import type { AtlasDef } from "../atlasDefs.ts";
+import { BuildingSprites } from "./buildings.ts";
 
 export const SnowAtlas: AtlasDef = {
-    compress: true,
     images: [
         ...BuildingSprites.warehouse_complex,
         ...BuildingSprites.bunker_hydra,

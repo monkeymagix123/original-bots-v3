@@ -1,35 +1,37 @@
 import $ from "jquery";
 import * as PIXI from "pixi.js-legacy";
-import { GameObjectDefs } from "../../../shared/defs/gameObjectDefs";
-import { PingDefs } from "../../../shared/defs/gameObjects/pingDefs";
-import { type RoleDef, RoleDefs } from "../../../shared/defs/gameObjects/roleDefs";
-import type { MapDef } from "../../../shared/defs/mapDefs";
-import { Action, GameConfig, GasMode, TeamMode } from "../../../shared/gameConfig";
-import type { PlayerStatsMsg } from "../../../shared/net/playerStatsMsg";
-import type { MapIndicator, PlayerStatus } from "../../../shared/net/updateMsg";
-import { coldet } from "../../../shared/utils/coldet";
-import { math } from "../../../shared/utils/math";
-import { type Vec2, v2 } from "../../../shared/utils/v2";
-import type { AudioManager } from "../audioManager";
-import type { Camera } from "../camera";
-import { device } from "../device";
-import { errorLogManager } from "../errorLogs";
-import type { Game } from "../game";
-import { type Gas, GasRenderer, GasSafeZoneRenderer } from "../gas";
-import { helpers } from "../helpers";
-import type { InputBinds, InputBindUi } from "./../inputBinds";
-import type { SoundHandle } from "../lib/createJS";
-import type { Map } from "../map";
-import { MapIndicatorBarn } from "../objects/mapIndicator";
-import { type MapSprite, MapSpriteBarn } from "../objects/mapSprite";
-import type { ParticleBarn } from "../objects/particles";
-import type { PlaneBarn } from "../objects/plane";
-import type { Player, PlayerBarn } from "../objects/player";
-import { SDK } from "../sdk/sdk";
-import type { Localization } from "./localization";
-import { PieTimer } from "./pieTimer";
-import type { Touch } from "./touch";
-import type { UiManager2 } from "./ui2";
+
+import { PingDefs } from "../../../shared/defs/gameObjects/pingDefs.ts";
+import type { RoleDef } from "../../../shared/defs/gameObjects/roleDefs.ts";
+import type { MapDef } from "../../../shared/defs/mapDefs.ts";
+import { GameObjectDefs } from "../../../shared/defs/register.ts";
+import { Action, GameConfig, GasMode, TeamMode } from "../../../shared/gameConfig.ts";
+import type { PlayerStatsMsg } from "../../../shared/net/playerStatsMsg.ts";
+import { SpectateAction } from "../../../shared/net/spectateMsg.ts";
+import type { MapIndicator } from "../../../shared/net/updateMsg.ts";
+import { coldet } from "../../../shared/utils/coldet.ts";
+import { math } from "../../../shared/utils/math.ts";
+import { v2, type Vec2 } from "../../../shared/utils/v2.ts";
+import type { AudioManager } from "../audioManager.ts";
+import type { Camera } from "../camera.ts";
+import { device } from "../device.ts";
+import { errorLogManager } from "../errorLogs.ts";
+import type { Game } from "../game.ts";
+import { type Gas, GasRenderer, GasSafeZoneRenderer } from "../gas.ts";
+import { helpers } from "../helpers.ts";
+import type { InputBinds, InputBindUi } from "./../inputBinds.ts";
+import type { SoundHandle } from "../lib/createJS.ts";
+import type { Map } from "../map.ts";
+import { MapIndicatorBarn } from "../objects/mapIndicator.ts";
+import { type MapSprite, MapSpriteBarn } from "../objects/mapSprite.ts";
+import type { ParticleBarn } from "../objects/particles.ts";
+import type { PlaneBarn } from "../objects/plane.ts";
+import type { ClientPlayerStatus, Player, PlayerBarn } from "../objects/player.ts";
+import { SDK } from "../sdk/sdk.ts";
+import type { Localization } from "./localization.ts";
+import { PieTimer } from "./pieTimer.ts";
+import type { Touch } from "./touch.ts";
+import type { UiManager2 } from "./ui2.ts";
 
 function humanizeTime(time: number) {
     const hours = Math.floor(time / 3600);
@@ -70,7 +72,7 @@ interface ContainerWithMask extends PIXI.Container {
     mask: PIXI.Graphics;
 }
 
-type PrevStatus = Pick<PlayerStatus, "downed" | "dead" | "disconnected" | "role">;
+type PrevStatus = Pick<ClientPlayerStatus, "downed" | "dead" | "disconnected" | "role">;
 export class UiManager {
     m_pieTimer = new PieTimer();
     gameElem = $("#ui-game");
@@ -116,6 +118,7 @@ export class UiManager {
     rightCenter = $("#ui-right-center");
     leaderboardAlive = $("#ui-leaderboard-alive");
     playersAlive = $(".js-ui-players-alive");
+    playersAliveCounter = 0;
     leaderboardAliveFaction = $("#ui-leaderboard-alive-faction");
     playersAliveRed = $(".js-ui-players-alive-red");
     playersAliveBlue = $(".js-ui-players-alive-blue");
@@ -163,9 +166,7 @@ export class UiManager {
     resumeButton = $("#btn-game-resume");
 
     specStatsButton = $("#btn-spectate-view-stats");
-    specBegin = false;
-    specNext = false;
-    specPrev = false;
+    specAction = SpectateAction.None;
     specNextButton = $("#btn-spectate-next-player");
     specPrevButton = $("#btn-spectate-prev-player");
 
@@ -191,7 +192,7 @@ export class UiManager {
     // Store minimap hidden
     minimapDisplayed = true;
 
-    // Store UI visiblity mode
+    // Store UI visibility mode
     visibilityMode = 0;
     hudVisible = true;
 
@@ -220,8 +221,6 @@ export class UiManager {
         gasSafeZone: PIXI.Container;
         airstrikeZones: PIXI.Container;
         mapSprites: PIXI.Container;
-        teammates: PIXI.Container;
-        player: PIXI.Container;
         border: PIXI.Graphics;
     };
 
@@ -278,13 +277,6 @@ export class UiManager {
         public inputBinds: InputBinds,
         public inputBindUi: InputBindUi,
     ) {
-        this.game = game;
-        this.particleBarn = particleBarn;
-        this.localization = localization;
-        this.touch = touch;
-        this.inputBinds = inputBinds;
-        this.inputBindUi = inputBindUi;
-
         this.roleMenuConfirm.on("click", (e) => {
             e.stopPropagation();
             this.roleSelected = this.roleDisplayed;
@@ -387,10 +379,10 @@ export class UiManager {
         });
 
         this.specNextButton.on("click", () => {
-            this.specNext = true;
+            this.specAction = SpectateAction.Next;
         });
         this.specPrevButton.on("click", () => {
-            this.specPrev = true;
+            this.specAction = SpectateAction.Prev;
         });
 
         // Touch specific buttons
@@ -477,19 +469,15 @@ export class UiManager {
             gasSafeZone: this.gasSafeZoneRenderer.display,
             airstrikeZones: planeBarn.airstrikeZoneContainer,
             mapSprites: this.mapSpriteBarn.container,
-            teammates: new PIXI.Container(),
-            player: new PIXI.Container(),
             border: new PIXI.Graphics(),
         };
 
-        this.mapSprite.anchor = new PIXI.Point(0.5, 0.5) as PIXI.ObservablePoint;
+        this.mapSprite.anchor.set(0.5, 0.5);
         this.container.addChild(this.mapSprite);
         this.container.addChild(this.display.gas);
         this.container.addChild(this.display.gasSafeZone);
         this.container.addChild(this.display.airstrikeZones);
         this.container.addChild(this.display.mapSprites);
-        this.container.addChild(this.display.teammates);
-        this.container.addChild(this.display.player);
         this.container.addChild(this.display.border);
 
         const minimapMargin = this.getMinimapMargin();
@@ -513,8 +501,6 @@ export class UiManager {
                 "src",
                 muteAudio ? this.muteOffImg : this.muteOnImg,
             );
-            // @ts-expect-error why assing it to null?
-            muteAudio = null;
         });
         this.teamMemberHealthBarWidth = parseInt(
             $(".ui-team-member-health").find(".ui-bar-inner").css("width"),
@@ -707,10 +693,10 @@ export class UiManager {
 
         // Action pie timer
         if (
-            this.actionSeq != player.m_action.seq &&
-            ((this.actionSeq = player.m_action.seq),
-            this.m_pieTimer.stop(),
-            player.m_action.type != Action.None && !this.displayingStats)
+            this.actionSeq != player.m_action.seq
+            && ((this.actionSeq = player.m_action.seq),
+                this.m_pieTimer.stop(),
+                player.m_action.type != Action.None && !this.displayingStats)
         ) {
             let desc = "";
             let actionTxt1 = "";
@@ -718,12 +704,12 @@ export class UiManager {
             switch (player.m_action.type) {
                 case Action.Reload:
                 case Action.ReloadAlt:
-                    if (GameObjectDefs[player.m_action.item]) {
+                    if (GameObjectDefs.typeExists(player.m_action.item)) {
                         actionTxt1 = this.localization.translate("game-reloading");
                     }
                     break;
                 case Action.UseItem:
-                    if (GameObjectDefs[player.m_action.item]) {
+                    if (GameObjectDefs.typeExists(player.m_action.item)) {
                         actionTxt1 = this.localization.translate("game-using");
                         actionTxt2 = this.localization.translate(
                             `game-${player.m_action.item}`,
@@ -758,14 +744,12 @@ export class UiManager {
         }
 
         if (!this.bigmapDisplayed) {
-            this.mapSprite.x =
-                this.minimapPos.x +
-                this.mapSprite.width / 2 -
-                (player.m_visualPos.x / map.width) * this.mapSprite.width;
-            this.mapSprite.y =
-                this.minimapPos.y -
-                this.mapSprite.height / 2 +
-                (player.m_visualPos.y / map.height) * this.mapSprite.height;
+            this.mapSprite.x = this.minimapPos.x
+                + this.mapSprite.width / 2
+                - (player.m_visualPos.x / map.width) * this.mapSprite.width;
+            this.mapSprite.y = this.minimapPos.y
+                - this.mapSprite.height / 2
+                + (player.m_visualPos.y / map.height) * this.mapSprite.height;
         }
 
         const camExtents = v2.create(
@@ -909,7 +893,7 @@ export class UiManager {
             if (this.flairId != localPlayerInfo.teamId) {
                 this.flairId = localPlayerInfo.teamId;
                 // Assume red or blue for now
-                const flairColor = this.flairId == 1 ? "red" : "blue";
+                const flairColor = this.flairId == GameConfig.FactionTeam.Red ? "red" : "blue";
                 this.flairElems.css({
                     display: "block",
                     "background-image": `url(../img/gui/player-patch-${flairColor}.svg)`,
@@ -919,9 +903,9 @@ export class UiManager {
 
         // Set the spectate options height if player count changed
         if (
-            teamMode > TeamMode.Solo &&
-            this.groupPlayerCount != groupPlayerCount &&
-            device.uiLayout == device.UiLayout.Lg
+            teamMode > TeamMode.Solo
+            && this.groupPlayerCount != groupPlayerCount
+            && device.uiLayout == device.UiLayout.Lg
         ) {
             this.groupPlayerCount = groupPlayerCount;
             this.spectateOptionsWrapper.css({
@@ -947,8 +931,8 @@ export class UiManager {
                 this.roleMenuFooterHtml = html;
             }
             if (
-                !this.roleMenuInst &&
-                this.audioManager.isSoundLoaded("ambient_lab_01", "ambient")
+                !this.roleMenuInst
+                && this.audioManager.isSoundLoaded("ambient_lab_01", "ambient")
             ) {
                 this.roleMenuInst = this.audioManager.playSound("ambient_lab_01", {
                     channel: "ambient",
@@ -997,7 +981,7 @@ export class UiManager {
             if (playerId == activePlayerInfo.playerId) {
                 zOrder += 65535 * 2;
             }
-            const roleDef = RoleDefs[playerStatus.role];
+            const roleDef = GameObjectDefs.typeToDefSafe(playerStatus.role) as RoleDef | undefined;
             const customMapIcon = roleDef?.mapIcon;
             if (customMapIcon) {
                 zOrder += 65535;
@@ -1014,7 +998,7 @@ export class UiManager {
                     texture = roleDef.mapIcon!.dead;
                 }
             } else if (playerStatus.downed) {
-                texture = sameGroup ? "player-map-inner.img" : "player-map-downed.img";
+                texture = sameGroup ? "player-group-downed.img" : "player-map-downed.img";
             }
             let tint = sameGroup
                 ? playerBarn.getGroupColor(playerId)
@@ -1032,11 +1016,11 @@ export class UiManager {
                 ? playerStatus.dead
                     ? dotScale * 1.5
                     : customMapIcon
-                      ? dotScale * 1.25
-                      : dotScale * 1
+                    ? dotScale * 1.25
+                    : dotScale * 1
                 : playerStatus.dead || playerStatus.downed || customMapIcon
-                  ? dotScale * 1.25
-                  : dotScale * 0.75;
+                ? dotScale * 1.25
+                : dotScale * 0.75;
 
             addSprite(
                 playerStatus.pos,
@@ -1105,10 +1089,10 @@ export class UiManager {
                 const s = this.mapSpriteBarn.addSprite();
                 s.pos = v2.copy(pos);
                 s.scale = scale;
-                s.lifetime = pingDef.mapLife!;
+                s.lifetime = pingDef.mapLife;
                 s.pulse = false;
                 s.zOrder = 100;
-                s.sprite.texture = PIXI.Texture.from(pingDef.mapTexture!);
+                s.sprite.texture = PIXI.Texture.from(pingDef.mapTexture);
                 s.sprite.tint = tint;
                 return s;
             };
@@ -1116,7 +1100,7 @@ export class UiManager {
                 const s = this.mapSpriteBarn.addSprite();
                 s.pos = v2.copy(pos);
                 s.scale = 0;
-                s.lifetime = pingDef.pingLife!;
+                s.lifetime = pingDef.pingLife;
                 s.pulse = true;
                 s.zOrder = 99;
                 s.sprite.texture = PIXI.Texture.from("ping-map-pulse.img");
@@ -1127,9 +1111,9 @@ export class UiManager {
                 // Map-event pings free themselves after they are finished;
                 // there's no limit to the number that an occur simultaneously.
                 const scale = (device.uiLayout == device.UiLayout.Sm ? 0.15 : 0.2) * 1.5;
-                createPingSprite(scale, pingDef.tint!).release();
+                createPingSprite(scale, pingDef.tint).release();
 
-                createPulseSprite(pingDef.tint!).release();
+                createPulseSprite(pingDef.tint).release();
             } else {
                 //
                 // Player pings
@@ -1210,18 +1194,16 @@ export class UiManager {
     }
 
     getMapPosFromWorldPos(worldPos: Vec2, map: Map) {
-        const xPos =
-            this.mapSprite.x -
-            this.mapSprite.width / 2 +
-            (worldPos.x / map.width) * this.mapSprite.width;
-        const yPos =
-            this.mapSprite.y +
-            this.mapSprite.height / 2 -
-            (worldPos.y / map.height) * this.mapSprite.height;
+        const xPos = this.mapSprite.x
+            - this.mapSprite.width / 2
+            + (worldPos.x / map.width) * this.mapSprite.width;
+        const yPos = this.mapSprite.y
+            + this.mapSprite.height / 2
+            - (worldPos.y / map.height) * this.mapSprite.height;
         return v2.create(xPos, yPos);
     }
 
-    getWorldPosFromMapPos(screenPos: Vec2, map: Map, camera: Camera): Vec2 {
+    getWorldPosFromMapPos(screenPos: Vec2, map: Map, camera: Camera): Vec2 | undefined {
         let insideMap = false;
         if (this.bigmapDisplayed) {
             const xBuffer = (camera.m_screenWidth - this.mapSprite.width) / 2;
@@ -1229,35 +1211,30 @@ export class UiManager {
             if (device.uiLayout == device.UiLayout.Sm && !device.isLandscape) {
                 yBuffer = 0;
             }
-            insideMap =
-                screenPos.x > xBuffer &&
-                screenPos.x < camera.m_screenWidth - xBuffer &&
-                screenPos.y > yBuffer &&
-                screenPos.y < camera.m_screenHeight - yBuffer;
+            insideMap = screenPos.x > xBuffer
+                && screenPos.x < camera.m_screenWidth - xBuffer
+                && screenPos.y > yBuffer
+                && screenPos.y < camera.m_screenHeight - yBuffer;
         } else if (this.minimapDisplayed) {
             const thisMinimapSize = this.getMinimapSize();
             const thisMinimapMargin = this.getMinimapMargin();
             const minimapSize = thisMinimapSize * this.screenScaleFactor;
             const halfSize = (minimapSize + thisMinimapMargin) * 0.5;
-            insideMap =
-                screenPos.x > this.minimapPos.x - halfSize &&
-                screenPos.x < this.minimapPos.x + halfSize &&
-                screenPos.y > this.minimapPos.y - halfSize &&
-                screenPos.y < this.minimapPos.y + halfSize;
+            insideMap = screenPos.x > this.minimapPos.x - halfSize
+                && screenPos.x < this.minimapPos.x + halfSize
+                && screenPos.y > this.minimapPos.y - halfSize
+                && screenPos.y < this.minimapPos.y + halfSize;
         }
         if (insideMap) {
             const mapOrigin = v2.create(
                 this.mapSprite.x - this.mapSprite.width / 2,
                 this.mapSprite.y + this.mapSprite.height / 2,
             );
-            const xWorldPos =
-                ((screenPos.x - mapOrigin.x) / this.mapSprite.width) * map.width;
-            const yWorldPos =
-                ((mapOrigin.y - screenPos.y) / this.mapSprite.height) * map.height;
+            const xWorldPos = ((screenPos.x - mapOrigin.x) / this.mapSprite.width) * map.width;
+            const yWorldPos = ((mapOrigin.y - screenPos.y) / this.mapSprite.height) * map.height;
             return v2.create(xWorldPos, yWorldPos);
         }
-        // @ts-expect-error why? just why?
-        return false;
+        return undefined;
     }
 
     hideAll() {
@@ -1290,10 +1267,6 @@ export class UiManager {
 
     clearUI() {
         this.m_pieTimer.stop();
-        // @ts-expect-error not used anywhere, should be removed, I think.
-        this.curAction = {
-            type: Action.None,
-        };
         this.displayMapLarge(true);
         this.displayMiniMap();
         this.clearStatsElems();
@@ -1306,7 +1279,7 @@ export class UiManager {
     }
 
     beginSpectating() {
-        this.specBegin = true;
+        this.specAction = SpectateAction.Begin;
     }
 
     hideStats() {
@@ -1333,9 +1306,11 @@ export class UiManager {
 
     getTitleVictoryText(spectatingAnotherTeam: boolean, gameMode: MapDef["gameMode"]) {
         if (spectatingAnotherTeam) {
-            return `${this.spectatedPlayerName} ${this.localization.translate(
-                "game-won-the-game",
-            )}`;
+            return `${this.spectatedPlayerName} ${
+                this.localization.translate(
+                    "game-won-the-game",
+                )
+            }`;
         }
         let chickenTxt = "game-chicken";
         if (gameMode.turkeyMode) {
@@ -1346,16 +1321,20 @@ export class UiManager {
 
     getTitleDefeatText(teamMode: TeamMode, spectatingAnotherTeam: boolean) {
         if (spectatingAnotherTeam) {
-            return `${this.spectatedPlayerName} ${this.localization.translate(
-                "game-player-died",
-            )}.`;
+            return `${this.spectatedPlayerName} ${
+                this.localization.translate(
+                    "game-player-died",
+                )
+            }.`;
         }
         if (teamMode > TeamMode.Solo) {
             return this.localization.translate("game-team-eliminated");
         }
-        return `${this.localization.translate(
-            "game-You",
-        )} ${this.localization.translate("game-you-died")}.`;
+        return `${
+            this.localization.translate(
+                "game-You",
+            )
+        } ${this.localization.translate("game-you-died")}.`;
     }
 
     getOverviewElems(
@@ -1370,15 +1349,21 @@ export class UiManager {
             return `<div class="ui-stats-header-right ui-stats-header-red-team"><span class="ui-stats-header-stat">${redTeamTxt} </span><span class="ui-stats-header-value">${this.playersAliveRedCounter}</span></div><div class="ui-stats-header-left ui-stats-header-blue-team"><span class="ui-stats-header-stat">${blueTeamTxt} </span><span class="ui-stats-header-value">${this.playersAliveBlueCounter}</span></div>`;
         }
         if (teamMode == TeamMode.Solo) {
-            return `<div><span class="ui-stats-header-stat">${this.teamModeToString(
-                teamMode,
-            )} </span><span class="ui-stats-header-value">#${teamRank}</span></div>`;
+            return `<div><span class="ui-stats-header-stat">${
+                this.teamModeToString(
+                    teamMode,
+                )
+            } </span><span class="ui-stats-header-value">#${teamRank}</span></div>`;
         }
-        return `<div class="ui-stats-header-right"><span class="ui-stats-header-stat">${this.teamModeToString(
-            teamMode,
-        )} </span><span class="ui-stats-header-value">#${teamRank}</span></div><div class="ui-stats-header-left"><span class="ui-stats-header-stat">${this.localization.translate(
-            "game-team-kills",
-        )} </span><span class="ui-stats-header-value">${teamKills}</span></div>`;
+        return `<div class="ui-stats-header-right"><span class="ui-stats-header-stat">${
+            this.teamModeToString(
+                teamMode,
+            )
+        } </span><span class="ui-stats-header-value">#${teamRank}</span></div><div class="ui-stats-header-left"><span class="ui-stats-header-stat">${
+            this.localization.translate(
+                "game-team-kills",
+            )
+        } </span><span class="ui-stats-header-value">${teamKills}</span></div>`;
     }
 
     quitGame() {
@@ -1427,14 +1412,13 @@ export class UiManager {
 
             this.setBannerAd(statsDelay, ui2);
 
-            const isLocalTeamWinner =
-                localTeamId == winningTeamId || (spectating && winningTeamId == teamId);
+            const isLocalTeamWinner = localTeamId == winningTeamId || (spectating && winningTeamId == teamId);
             const spectatingAnotherTeam = spectating && localTeamId != teamId;
             const S = isLocalTeamWinner
                 ? this.getTitleVictoryText(
-                      spectatingAnotherTeam,
-                      map.getMapDef().gameMode,
-                  )
+                    spectatingAnotherTeam,
+                    map.getMapDef().gameMode,
+                )
                 : this.getTitleDefeatText(teamMode, spectatingAnotherTeam);
             let teamKills = 0;
             for (let i = 0; i < playerStats.length; i++) {
@@ -1526,10 +1510,9 @@ export class UiManager {
                             );
                             break;
                         case 3: {
-                            const R =
-                                playerInfo.teamId == 1
-                                    ? "ui-stats-info-player-red-ribbon"
-                                    : "ui-stats-info-player-blue-ribbon";
+                            const R = playerInfo.teamId == GameConfig.FactionTeam.Red
+                                ? "ui-stats-info-player-red-ribbon"
+                                : "ui-stats-info-player-blue-ribbon";
                             B.append(
                                 $("<div/>", {
                                     class: `ui-stats-info-player-badge ${R}`,
@@ -1551,19 +1534,18 @@ export class UiManager {
                 });
             });
             this.statsOptions.append(restartButton);
-            if (gameOver || this.waitingForPlayers) {
+            const alive = this.playersAliveCounter + this.playersAliveRedCounter + this.playersAliveBlueCounter;
+            if (gameOver || alive === 0) {
                 restartButton.css({
-                    width:
-                        device.uiLayout != device.UiLayout.Sm || device.tablet
-                            ? 225
-                            : 130,
+                    width: device.uiLayout != device.UiLayout.Sm || device.tablet
+                        ? 225
+                        : 130,
                 });
             } else {
                 restartButton.css({
-                    left:
-                        device.uiLayout != device.UiLayout.Sm || device.tablet
-                            ? -72
-                            : -46,
+                    left: device.uiLayout != device.UiLayout.Sm || device.tablet
+                        ? -72
+                        : -46,
                 });
                 const q = $("<a/>", {
                     class: "btn-green btn-darken menu-option ui-stats-spectate",
@@ -1665,9 +1647,11 @@ export class UiManager {
                 t += " ";
                 t += this.localization.translate("game-you-died");
                 t += ".";
-                let a = `<div><span class="ui-stats-header-stat">${this.localization.translate(
-                    "game-kills",
-                )} </span>`;
+                let a = `<div><span class="ui-stats-header-stat">${
+                    this.localization.translate(
+                        "game-kills",
+                    )
+                } </span>`;
                 a += `<span class="ui-stats-header-value">${playerStats.kills}</span></div>`;
                 return $("<div/>", {
                     class: "",
@@ -1805,11 +1789,11 @@ export class UiManager {
         for (const k in displayStats) {
             if (displayStats.hasOwnProperty(k)) {
                 const text = displayStats[k as keyof typeof displayStats];
-                const stat =
-                    k == "timeAlive"
-                        ? humanizeTime(stats[k])
-                        : stats[k as keyof typeof displayStats];
-                const html = `<tr><td class="ui-spectate-stats-category">${text}</td><td class="ui-spectate-stats-value">${stat}</td></tr>`;
+                const stat = k == "timeAlive"
+                    ? humanizeTime(stats[k])
+                    : stats[k as keyof typeof displayStats];
+                const html =
+                    `<tr><td class="ui-spectate-stats-category">${text}</td><td class="ui-spectate-stats-value">${stat}</td></tr>`;
                 this.spectateModeStatsData.append(html);
             }
         }
@@ -1827,6 +1811,7 @@ export class UiManager {
 
     updatePlayersAlive(alive: number) {
         this.playersAlive.html(alive);
+        this.playersAliveCounter = alive;
 
         this.leaderboardAlive.css("display", "block");
         this.leaderboardAliveFaction.css("display", "none");
@@ -1875,10 +1860,9 @@ export class UiManager {
         } else {
             this.container.alpha = this.minimapDisplayed ? 1 : 0;
         }
-        let mapHidden =
-            device.uiLayout == device.UiLayout.Sm
-                ? ".js-ui-mobile-map-hidden"
-                : "js-ui-desktop-map-hidden";
+        let mapHidden = device.uiLayout == device.UiLayout.Sm
+            ? ".js-ui-mobile-map-hidden"
+            : "js-ui-desktop-map-hidden";
         mapHidden += ", .js-ui-map-hidden";
         $(this.visibilityMode == 2 ? ".js-ui-hud-show" : mapHidden).css(
             "display",
@@ -1891,10 +1875,9 @@ export class UiManager {
 
     updateSpectatorCountDisplay(dirty: boolean) {
         const displayCounter = !this.bigmapDisplayed && this.spectatorCount > 0;
-        dirty =
-            dirty ||
-            (this.spectatorCount > 0 && !this.spectatorCounterDisplayed) ||
-            (this.spectatorCount == 0 && this.spectatorCounterDisplayed);
+        dirty = dirty
+            || (this.spectatorCount > 0 && !this.spectatorCounterDisplayed)
+            || (this.spectatorCount == 0 && this.spectatorCounterDisplayed);
 
         if (this.spectatorCount != this.prevSpectatorCount) {
             this.spectatorCounter.html(this.spectatorCount as unknown as string);
@@ -1986,20 +1969,19 @@ export class UiManager {
                 message = this.localization.translate("game-red-zone-advances");
                 const minutes = Math.floor(timeLeft / 60);
                 const seconds = timeLeft - minutes * 60;
-                message +=
-                    minutes > 1
-                        ? ` ${minutes} ${this.localization.translate("game-minutes")}`
-                        : "";
-                message +=
-                    minutes == 1
-                        ? ` ${minutes} ${this.localization.translate("game-minute")}`
-                        : "";
-                message +=
-                    seconds > 0
-                        ? ` ${Math.floor(seconds)} ${this.localization.translate(
-                              "game-seconds",
-                          )}`
-                        : "";
+                message += minutes > 1
+                    ? ` ${minutes} ${this.localization.translate("game-minutes")}`
+                    : "";
+                message += minutes == 1
+                    ? ` ${minutes} ${this.localization.translate("game-minute")}`
+                    : "";
+                message += seconds > 0
+                    ? ` ${Math.floor(seconds)} ${
+                        this.localization.translate(
+                            "game-seconds",
+                        )
+                    }`
+                    : "";
                 break;
             }
             case GasMode.Moving:
@@ -2112,15 +2094,14 @@ export class UiManager {
         const prevHealth = this.teamSelectors[slotIdx].prevHealth;
         const prevStatus = this.teamSelectors[slotIdx].prevStatus;
 
-        const statusChange =
-            status.dead != prevStatus.dead ||
-            status.disconnected != prevStatus.disconnected ||
-            status.downed != prevStatus.downed ||
-            status.role != prevStatus.role;
+        const statusChange = status.dead != prevStatus.dead
+            || status.disconnected != prevStatus.disconnected
+            || status.downed != prevStatus.downed
+            || status.role != prevStatus.role;
         if (
-            this.teamSelectors[slotIdx].playerId != playerId ||
-            health != prevHealth ||
-            statusChange
+            this.teamSelectors[slotIdx].playerId != playerId
+            || health != prevHealth
+            || statusChange
         ) {
             const teamStatus = this.teamSelectors[slotIdx].teamStatus;
             const teamHealthInner = this.teamSelectors[slotIdx].teamHealthInner;
@@ -2146,8 +2127,7 @@ export class UiManager {
                 teamName.css("opacity", status.disconnected || status.dead ? 0.3 : 1);
             }
             groupId.css("display", "block");
-            this.teamSelectors[slotIdx].prevStatus =
-                status as this["teamSelectors"][number]["prevStatus"];
+            this.teamSelectors[slotIdx].prevStatus = status as this["teamSelectors"][number]["prevStatus"];
             this.teamSelectors[slotIdx].prevHealth = health;
         }
     }
@@ -2164,14 +2144,13 @@ export class UiManager {
     }
 
     resize(map: Map, camera: Camera) {
-        this.screenScaleFactor =
-            device.uiLayout == device.UiLayout.Sm
-                ? 0.5626
-                : math.min(
-                      1,
-                      math.clamp(camera.m_screenWidth / 1280, 0.75, 1) *
-                          math.clamp(camera.m_screenHeight / 1024, 0.75, 1),
-                  );
+        this.screenScaleFactor = device.uiLayout == device.UiLayout.Sm
+            ? 0.5626
+            : math.min(
+                1,
+                math.clamp(camera.m_screenWidth / 1280, 0.75, 1)
+                    * math.clamp(camera.m_screenHeight / 1024, 0.75, 1),
+            );
         this.m_pieTimer.resize(this.touch, this.screenScaleFactor);
 
         this.gasRenderer.resize();
@@ -2267,17 +2246,16 @@ export class UiManager {
             const minimapPosY = layoutSm
                 ? minimapSize / 2 + thisMinimapMargin
                 : screenHeight - minimapSize / 2 - thisMinimapMargin;
-            this.minimapPos.x =
-                thisMinimapMargin + minimapSize / 2 + thisMinimapMarginXAdjust;
+            this.minimapPos.x = thisMinimapMargin + minimapSize / 2 + thisMinimapMarginXAdjust;
             this.minimapPos.y = minimapPosY + thisMinimapMarginYAdjust;
             this.display.border.lineStyle(thisMinimapBorderWidth, 0);
             this.display.border.beginFill(0, 0);
             const u = layoutSm
                 ? thisMinimapMargin + thisMinimapBorderWidth / 2
-                : screenHeight -
-                  minimapSize -
-                  thisMinimapMargin +
-                  thisMinimapBorderWidth / 2;
+                : screenHeight
+                    - minimapSize
+                    - thisMinimapMargin
+                    + thisMinimapBorderWidth / 2;
             this.display.border.drawRect(
                 thisMinimapMargin + thisMinimapBorderWidth / 2 + thisMinimapMarginXAdjust,
                 u + thisMinimapMarginYAdjust,
@@ -2374,7 +2352,7 @@ export class UiManager {
 
         for (let a = 0; a < roles.length; a++) {
             const role = roles[a];
-            const roleDef = GameObjectDefs[role] as RoleDef;
+            const roleDef = GameObjectDefs.typeToDef(role, "role");
             const roleOption = $("<div/>", {
                 class: "ui-role-option",
                 "data-role": role,
@@ -2399,7 +2377,7 @@ export class UiManager {
     }
 
     setRoleMenuInfo(role: string) {
-        const roleDef = GameObjectDefs[role] as RoleDef;
+        const roleDef = GameObjectDefs.typeToDef(role, "role");
         $(".ui-role-option").css({
             "background-size": 132,
             opacity: 0.5,

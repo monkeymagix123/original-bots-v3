@@ -1,18 +1,34 @@
-import { GameObjectDefs } from "../../../shared/defs/gameObjectDefs";
-import { type QuestDef, QuestDefs } from "../../../shared/defs/gameObjects/questDefs";
-import { MapObjectDefs } from "../../../shared/defs/mapObjectDefs";
-import type { ObstacleDef } from "../../../shared/defs/mapObjectsTyping";
-import { TeamModeToString } from "../../../shared/defs/types/misc";
-import { MsgType, UpdatePassMsg } from "../../../shared/net/net";
-import type { Game } from "./game";
-import type { Player } from "./objects/player";
+import {
+    type Filter,
+    type FilterParams,
+    type FilterTypes,
+    type QuestDef,
+    QuestDefs,
+    type QuestEvent,
+    type SupportedFilters,
+} from "../../../shared/defs/gameObjects/questDefs.ts";
+import { GameObjectDefs } from "../../../shared/defs/register.ts";
+import type { TeamMode } from "../../../shared/gameConfig.ts";
+import { MsgType, UpdatePassMsg } from "../../../shared/net/net.ts";
+import { math } from "../../../shared/utils/math.ts";
+import { assert, type UnionToIntersection, util } from "../../../shared/utils/util.ts";
+import type { Game } from "./game.ts";
+import type { Player } from "./objects/player.ts";
 
 export class QuestManager {
     player: Player;
     game: Game;
 
-    quests: Array<{ id: string; delta: number }> = [];
+    quests: Array<{
+        id: string;
+        delta: number;
+        /**
+         * Should only be used for tests, because `delta` is reset after flushing
+         */
+        totalDelta: number;
+    }> = [];
     private gameOverFlushed = false;
+    private survivedFlushed = false;
 
     constructor(player: Player) {
         this.player = player;
@@ -22,28 +38,51 @@ export class QuestManager {
     /**
      * When winningTeamId is not known yet it falls for the rank
      */
-    private trackGameOverQuests(winningTeamId?: number) {
+    private trackPlacementQuests(winningTeamId?: number) {
         if (this.gameOverFlushed) return;
+        if (!this.game.started) return;
+
+        let playerOrGroupDead = false;
+        if (this.game.map.factionMode || this.game.isTeamMode) {
+            const group = this.player.team ?? this.player.group;
+            assert(group, "Player has no group on a team mode");
+
+            playerOrGroupDead = group.livingPlayers.length === 0;
+        } else if (this.player.dead) {
+            playerOrGroupDead = true;
+        }
+
+        const shouldTrack = playerOrGroupDead || this.game.over;
+        if (!shouldTrack) return;
+
+        this.gameOverFlushed = true;
 
         const aliveCount = this.game.modeManager.aliveCount();
-        const teamRank =
-            winningTeamId !== undefined && winningTeamId == this.player.teamId
-                ? 1
-                : aliveCount + 1;
+        const teamRank = winningTeamId !== undefined && winningTeamId == this.player.teamId
+            ? 1
+            : aliveCount + 1;
 
-        this.trackEvent("survived", { seconds: this.player.timeAlive });
         this.trackEvent("placement", {
             rank: teamRank,
-            mode: TeamModeToString[this.game.teamMode],
+            mode: this.game.teamMode,
         });
     }
 
+    private trackSurvivedQuest() {
+        if (this.survivedFlushed) return;
+
+        const shouldTrack = this.player.dead || this.game.over;
+        if (!shouldTrack) return;
+
+        this.survivedFlushed = true;
+        this.trackEvent("survived", { mode: this.game.teamMode, seconds: this.player.timeAlive });
+    }
+
     flushProgress(winningTeamId?: number) {
-        if (!this.player.userId || this.gameOverFlushed) return;
+        if (!this.player.userId) return;
 
-        this.trackGameOverQuests(winningTeamId);
-
-        this.gameOverFlushed = true;
+        this.trackSurvivedQuest();
+        this.trackPlacementQuests(winningTeamId);
 
         const progress = this.quests
             .map((quest) => ({
@@ -55,13 +94,18 @@ export class QuestManager {
         if (progress.length === 0) return;
 
         if (!this.player.disconnected) {
-            this.player.sendMsg(MsgType.UpdatePass, new UpdatePassMsg());
+            this.player.client.sendInstantMsg(MsgType.UpdatePass, new UpdatePassMsg());
         }
 
         this.game.sendQuestProgress(this.player.userId, progress);
+
+        // reset the deltas in case they get flushed again
+        for (const quest of this.quests) {
+            quest.delta = 0;
+        }
     }
 
-    trackEvent<K extends keyof QuestEventPayloads>(
+    trackEvent<K extends QuestEvent>(
         payloadKey: K,
         payload: QuestEventPayloads[K],
     ): void {
@@ -74,20 +118,91 @@ export class QuestManager {
             if (delta <= 0) continue;
 
             quest.delta += delta;
+            quest.totalDelta += delta;
         }
+    }
+
+    hasQuestWithFilter(filter: FilterTypes): boolean {
+        return this.quests.some(q => QuestDefs[q.id].filters?.some(f => f.type === filter));
     }
 }
 
-export interface QuestEventPayloads {
-    kill: { weaponType: string; buildingType: string };
-    damage: { amount: number; weaponType: string };
+type PayloadByFilter = {
+    team_mode: { mode: TeamMode };
+    max_rank: { rank: number };
+    building: { intersectingBuildings: string[] };
+    role: { role: string };
+    weapon: { weaponType: string };
+    obstacle: { obstacleCategory?: string; obstacleType: string };
+    item: { itemCategory: string; itemType: string };
+};
+
+type RequiredPayload<E extends QuestEvent> = UnionToIntersection<
+    PayloadByFilter[SupportedFilters<E>[number]["type"]]
+>;
+
+interface QuestEventExtraPayload {
+    kill: object;
+    damage: { amount: number };
     survived: { seconds: number };
-    placement: { rank: number; mode: "solo" | "duo" | "squad" };
-    item_used: { itemType: string };
-    destruction: { objectType: string };
+    placement: object;
+    item_used: object;
+    airdrop_unlocked: object;
+    destruction: object;
+    promote: object;
+    be_mvp: object;
 }
 
-export function questDelta<E extends keyof QuestEventPayloads>(
+export type QuestEventPayloads = { [E in QuestEvent]: RequiredPayload<E> & QuestEventExtraPayload[E] };
+
+const filters: { [F in FilterTypes]: (payload: PayloadByFilter[F], filter: Filter<F>) => boolean } = {
+    role(payload, filter) {
+        return filter.role.includes(payload.role);
+    },
+    team_mode(payload, filter) {
+        return payload.mode === filter.mode;
+    },
+    max_rank(payload, filter) {
+        return payload.rank <= filter.maxRank;
+    },
+    building(payload, filter) {
+        return payload.intersectingBuildings.some(b => filter.buildingType.includes(b));
+    },
+    obstacle(payload, filter) {
+        if (filter.subType === "type") {
+            return filter.obstacleType.includes(payload.obstacleType);
+        } else {
+            return filter.obstacleCategory.includes(payload.obstacleCategory!);
+        }
+    },
+    weapon(payload, filter) {
+        const weapDef = GameObjectDefs.typeToDefSafe(payload.weaponType);
+        if (weapDef?.type !== filter.weaponClass) {
+            return false;
+        }
+
+        if (filter.weaponType !== undefined && payload.weaponType !== filter.weaponType) {
+            return false;
+        }
+
+        if (filter.weaponClass === "gun" && weapDef.type === "gun" && filter.ammo !== undefined) {
+            if (!filter.ammo.includes(weapDef.ammo)) {
+                return false;
+            }
+        }
+
+        return true;
+    },
+    item(payload, filter) {
+        if (filter.subType === "type") {
+            return filter.itemType.includes(payload.itemType);
+        } else {
+            return filter.itemCategory.includes(payload.itemCategory);
+        }
+    },
+};
+
+export function questDelta<E extends QuestEvent>(
     def: QuestDef,
     event: E,
     payload: QuestEventPayloads[E],
@@ -96,32 +211,40 @@ export function questDelta<E extends keyof QuestEventPayloads>(
         return 0;
     }
 
-    const where = def.where;
+    for (const filter of def.filters ?? []) {
+        type FilterFn = (_0: PayloadByFilter[typeof filter.type], _1: FilterParams[typeof filter.type]) => boolean;
+
+        assert(
+            Object.hasOwn(filters, filter.type),
+            `Unhandled filter type '${filter.type}'. Did you forget to add a validator for a new filter?`,
+        );
+
+        if (
+            !(filters[filter.type] as FilterFn)(
+                payload as PayloadByFilter[typeof filter.type],
+                filter,
+            )
+        ) {
+            return 0;
+        }
+    }
+
     let value = 0;
 
     switch (event) {
-        case "kill": {
-            const p = payload as QuestEventPayloads["kill"];
-            if (where?.buildingType && p.buildingType !== where.buildingType) {
-                return 0;
-            }
+        case "kill":
+        case "placement":
+        case "item_used":
+        case "airdrop_unlocked":
+        case "destruction":
+        case "promote":
+        case "be_mvp": {
             value = 1;
             break;
         }
 
         case "damage": {
             const p = payload as QuestEventPayloads["damage"];
-            const weapDef = GameObjectDefs[p.weaponType];
-            const ammo = weapDef?.type === "gun" ? weapDef.ammo : undefined;
-
-            if (where?.ammo && ammo !== where.ammo) {
-                return 0;
-            }
-
-            if (where?.weaponClass && weapDef?.type !== where.weaponClass) {
-                return 0;
-            }
-
             value = p.amount;
             break;
         }
@@ -132,59 +255,10 @@ export function questDelta<E extends keyof QuestEventPayloads>(
             break;
         }
 
-        case "placement": {
-            const p = payload as QuestEventPayloads["placement"];
-
-            if (where?.mode && p.mode !== where.mode) {
-                return 0;
-            }
-
-            if (where?.maxRank !== undefined && p.rank > where.maxRank) {
-                return 0;
-            }
-
-            value = 1;
-            break;
-        }
-
-        case "item_used": {
-            const p = payload as QuestEventPayloads["item_used"];
-            const itemDef = GameObjectDefs[p.itemType];
-
-            if (where?.itemType && p.itemType !== where.itemType) {
-                return 0;
-            }
-
-            if (where?.itemClass && itemDef?.type !== where.itemClass) {
-                return 0;
-            }
-
-            value = 1;
-            break;
-        }
-
-        case "destruction": {
-            const p = payload as QuestEventPayloads["destruction"];
-            const obstacleType = where?.obstacleType;
-
-            if (!obstacleType) {
-                return 0;
-            }
-
-            const objectDef = MapObjectDefs[p.objectType] as ObstacleDef | undefined;
-            if (objectDef?.obstacleType) {
-                value = objectDef.obstacleType === obstacleType ? 1 : 0;
-                break;
-            }
-
-            value = p.objectType.startsWith(obstacleType) ? 1 : 0;
-            break;
+        default: {
+            assert(false, `Unhandled quest event type '${event}'. Did you forget to add a handler for a new type?`);
         }
     }
 
-    if (value <= 0) {
-        return 0;
-    }
-
-    return value;
+    return math.max(0, value);
 }

@@ -1,15 +1,15 @@
-import { GameObjectDefs } from "../../shared/defs/gameObjectDefs";
-import type { MeleeDef } from "../../shared/defs/gameObjects/meleeDefs";
-import { GameConfig } from "../../shared/gameConfig";
-import { math } from "../../shared/utils/math";
-import { assert } from "../../shared/utils/util";
-import { type Vec2, v2 } from "../../shared/utils/v2";
-import type { AnimCtx, Player } from "./objects/player";
+import { GameObjectDefs } from "../../shared/defs/register.ts";
+import { GameConfig } from "../../shared/gameConfig.ts";
+import { math } from "../../shared/utils/math.ts";
+import { assert } from "../../shared/utils/util.ts";
+import { v2, type Vec2 } from "../../shared/utils/v2.ts";
+import type { AnimCtx, Player } from "./objects/player.ts";
 
-function frame(time: number, bones: Partial<Record<Bones, Pose>>) {
+function frame(time: number, bones: Partial<Record<Bones, Pose>>, easing?: (t: number) => number) {
     return {
         time,
         bones,
+        easing,
     };
 }
 
@@ -18,8 +18,7 @@ type AnimKeys = {
         this: Player,
         ctx: AnimCtx,
         arg: Record<string, unknown>,
-    ) => void) extends Player[K]
-        ? K
+    ) => void) extends Player[K] ? K
         : never;
 }[keyof Player];
 
@@ -36,13 +35,16 @@ function effect<K extends AnimKeys>(
 }
 
 export class Pose {
+    pivot: Vec2;
+    rot: number;
+    pos: Vec2;
     constructor(
-        public pivot = v2.create(0, 0),
-        public rot = 0,
-        public pos = v2.create(0, 0),
+        pivot = v2.create(0, 0),
+        rot = 0,
+        pos = v2.create(0, 0),
     ) {
         this.pivot = v2.copy(pivot);
-        this.rot = 0;
+        this.rot = rot;
         this.pos = v2.copy(pos);
     }
 
@@ -78,6 +80,8 @@ export enum Bones {
     HandR,
     FootL,
     FootR,
+    MeleeL, // unused for now
+    MeleeR,
 }
 assert(Object.keys(Bones).length % 2 == 0);
 
@@ -124,7 +128,7 @@ export const IdlePoses: Record<string, Partial<Record<Bones, Pose>>> = {
     },
     minigun: {
         [Bones.HandL]: new Pose(v2.create(18, 7.25)),
-        [Bones.HandR]: new Pose(v2.create(44, 0)),
+        [Bones.HandR]: new Pose(v2.create(54, 0)),
     },
     launcher: {
         [Bones.HandL]: new Pose(v2.create(20, 10)),
@@ -150,7 +154,7 @@ export const IdlePoses: Record<string, Partial<Record<Bones, Pose>>> = {
     },
 };
 
-const def = GameObjectDefs as unknown as Record<string, MeleeDef>;
+const def = (type: string) => GameObjectDefs.typeToDef(type, "melee");
 
 interface Effect<K extends AnimKeys = AnimKeys> {
     time: number;
@@ -164,6 +168,7 @@ export const Animations: Record<
         keyframes: Array<{
             time: number;
             bones: Partial<Record<Bones, Pose>>;
+            easing?: (t: number) => number;
         }>;
         effects: Effect[];
     }
@@ -175,70 +180,86 @@ export const Animations: Record<
     fists: {
         keyframes: [
             frame(0, { [Bones.HandR]: new Pose(v2.create(14, 12.25)) }),
-            frame(def.fists.attack.damageTimes[0], {
+            frame(def("fists").attack.damageTimes[0], {
                 [Bones.HandR]: new Pose(v2.create(29.75, 1.75)),
             }),
-            frame(def.fists.attack.cooldownTime, {
+            frame(def("fists").attack.cooldownTime, {
                 [Bones.HandR]: new Pose(v2.create(14, 12.25)),
             }),
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
-            effect(def.fists.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("fists").attack.damageTimes[0], "animMeleeCollision", {}),
+        ],
+    },
+    // Karambit-specific version of "fists"
+    stab: {
+        keyframes: [
+            frame(0, { [Bones.HandR]: new Pose(v2.create(6, 20.25)) }),
+            frame(def("fists").attack.damageTimes[0], {
+                [Bones.HandR]: new Pose(v2.create(29.75, 1.75)),
+            }),
+            frame(def("fists").attack.cooldownTime, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)),
+            }),
+        ],
+        effects: [
+            effect(0, "animPlaySound", { sound: "swing" }),
+            effect(def("fists").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     cut: {
         keyframes: [
             frame(0, { [Bones.HandR]: new Pose(v2.create(14, 12.25)) }),
-            frame(def.fists.attack.damageTimes[0] * 0.25, {
+            frame(def("fists").attack.damageTimes[0] * 0.25, {
                 [Bones.HandR]: new Pose(v2.create(14, 12.25)).rotate(-Math.PI * 0.35),
             }),
-            frame(def.fists.attack.damageTimes[0] * 1.25, {
+            frame(def("fists").attack.damageTimes[0] * 1.25, {
                 [Bones.HandR]: new Pose(v2.create(14, 12.25)).rotate(Math.PI * 0.35),
             }),
-            frame(def.fists.attack.cooldownTime, {
+            frame(def("fists").attack.cooldownTime, {
                 [Bones.HandR]: new Pose(v2.create(14, 12.25)),
             }),
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
-            effect(def.fists.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("fists").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     cutReverse: {
         keyframes: [
             frame(0, { [Bones.HandR]: new Pose(v2.create(1, 17.75)) }),
-            frame(def.fists.attack.damageTimes[0] * 0.4, {
+            frame(def("fists").attack.damageTimes[0] * 0.4, {
                 [Bones.HandR]: new Pose(v2.create(25, 6.25)).rotate(Math.PI * 0.3),
             }),
-            frame(def.fists.attack.damageTimes[0] * 1.4, {
+            frame(def("fists").attack.damageTimes[0] * 1.4, {
                 [Bones.HandR]: new Pose(v2.create(25, 6.25)).rotate(-Math.PI * 0.5),
             }),
-            frame(def.fists.attack.cooldownTime, {
+            frame(def("fists").attack.cooldownTime, {
                 [Bones.HandR]: new Pose(v2.create(1, 17.75)),
             }),
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
-            effect(def.fists.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("fists").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     thrust: {
         keyframes: [
             frame(0, { [Bones.HandR]: new Pose(v2.create(14, 12.25)) }),
-            frame(def.fists.attack.damageTimes[0] * 0.4, {
+            frame(def("fists").attack.damageTimes[0] * 0.4, {
                 [Bones.HandR]: new Pose(v2.create(5, 12.25)).rotate(Math.PI * 0.1),
             }),
-            frame(def.fists.attack.damageTimes[0] * 1.4, {
-                [Bones.HandR]: new Pose(v2.create(25, 6.25)).rotate(-Math.PI * 0),
+            frame(def("fists").attack.damageTimes[0] * 1.4, {
+                [Bones.HandR]: new Pose(v2.create(25, 6.25)).rotate(0),
             }),
-            frame(def.fists.attack.cooldownTime, {
+            frame(def("fists").attack.cooldownTime, {
                 [Bones.HandR]: new Pose(v2.create(14, 12.25)),
             }),
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
-            effect(def.fists.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("fists").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     slash: {
@@ -247,39 +268,39 @@ export const Animations: Record<
                 [Bones.HandL]: new Pose(v2.create(18, -8.25)),
                 [Bones.HandR]: new Pose(v2.create(6, 20.25)),
             }),
-            frame(def.fists.attack.damageTimes[0], {
+            frame(def("fists").attack.damageTimes[0], {
                 [Bones.HandL]: new Pose(v2.create(6, -22.25)),
                 [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(-Math.PI * 0.6),
             }),
-            frame(def.fists.attack.cooldownTime, {
+            frame(def("fists").attack.cooldownTime, {
                 [Bones.HandL]: new Pose(v2.create(18, -8.25)),
                 [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(0),
             }),
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
-            effect(def.fists.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("fists").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     hook: {
         keyframes: [
             frame(0, { [Bones.HandR]: new Pose(v2.create(14, 12.25)) }),
-            frame(def.hook.attack.damageTimes[0] * 0.25, {
+            frame(def("hook").attack.damageTimes[0] * 0.25, {
                 [Bones.HandR]: new Pose(v2.create(14, 12.25)).rotate(Math.PI * 0.1),
             }),
-            frame(def.hook.attack.damageTimes[0], {
+            frame(def("hook").attack.damageTimes[0], {
                 [Bones.HandR]: new Pose(v2.create(24, 1.75)),
             }),
-            frame(def.hook.attack.damageTimes[0] + 0.05, {
+            frame(def("hook").attack.damageTimes[0] + 0.05, {
                 [Bones.HandR]: new Pose(v2.create(14, 12.25)).rotate(Math.PI * -0.3),
             }),
-            frame(def.hook.attack.damageTimes[0] + 0.1, {
+            frame(def("hook").attack.damageTimes[0] + 0.1, {
                 [Bones.HandR]: new Pose(v2.create(14, 12.25)),
             }),
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
-            effect(def.hook.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("hook").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     pan: {
@@ -295,7 +316,7 @@ export const Animations: Record<
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
-            effect(def.pan.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("pan").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     axeSwing: {
@@ -304,24 +325,24 @@ export const Animations: Record<
                 [Bones.HandL]: new Pose(v2.create(10.5, -14.25)),
                 [Bones.HandR]: new Pose(v2.create(18, 6.25)),
             }),
-            frame(def.woodaxe.attack.damageTimes[0] * 0.4, {
+            frame(def("woodaxe").attack.damageTimes[0] * 0.4, {
                 [Bones.HandL]: new Pose(v2.create(9, -14.25)).rotate(Math.PI * 0.4),
                 [Bones.HandR]: new Pose(v2.create(18, 6.25)).rotate(Math.PI * 0.4),
             }),
-            frame(def.woodaxe.attack.damageTimes[0], {
+            frame(def("woodaxe").attack.damageTimes[0], {
                 [Bones.HandL]: new Pose(v2.create(9, -14.25)).rotate(-Math.PI * 0.4),
                 [Bones.HandR]: new Pose(v2.create(18, 6.25)).rotate(-Math.PI * 0.4),
             }),
-            frame(def.woodaxe.attack.cooldownTime, {
+            frame(def("woodaxe").attack.cooldownTime, {
                 [Bones.HandL]: new Pose(v2.create(10.5, -14.25)),
                 [Bones.HandR]: new Pose(v2.create(18, 6.25)),
             }),
         ],
         effects: [
-            effect(def.woodaxe.attack.damageTimes[0], "animPlaySound", {
+            effect(def("woodaxe").attack.damageTimes[0], "animPlaySound", {
                 sound: "swing",
             }),
-            effect(def.woodaxe.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("woodaxe").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     hammerSwing: {
@@ -330,24 +351,24 @@ export const Animations: Record<
                 [Bones.HandL]: new Pose(v2.create(10.5, -14.25)),
                 [Bones.HandR]: new Pose(v2.create(18, 6.25)),
             }),
-            frame(def.stonehammer.attack.damageTimes[0] * 0.4, {
+            frame(def("stonehammer").attack.damageTimes[0] * 0.4, {
                 [Bones.HandL]: new Pose(v2.create(9, -14.25)).rotate(Math.PI * 0.4),
                 [Bones.HandR]: new Pose(v2.create(18, 6.25)).rotate(Math.PI * 0.4),
             }),
-            frame(def.stonehammer.attack.damageTimes[0], {
+            frame(def("stonehammer").attack.damageTimes[0], {
                 [Bones.HandL]: new Pose(v2.create(9, -14.25)).rotate(-Math.PI * 0.4),
                 [Bones.HandR]: new Pose(v2.create(18, 6.25)).rotate(-Math.PI * 0.4),
             }),
-            frame(def.stonehammer.attack.cooldownTime, {
+            frame(def("stonehammer").attack.cooldownTime, {
                 [Bones.HandL]: new Pose(v2.create(10.5, -14.25)),
                 [Bones.HandR]: new Pose(v2.create(18, 6.25)),
             }),
         ],
         effects: [
-            effect(def.stonehammer.attack.damageTimes[0], "animPlaySound", {
+            effect(def("stonehammer").attack.damageTimes[0], "animPlaySound", {
                 sound: "swing",
             }),
-            effect(def.stonehammer.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("stonehammer").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     katanaSwing: {
@@ -356,24 +377,24 @@ export const Animations: Record<
                 [Bones.HandL]: new Pose(v2.create(8.5, 13.25)),
                 [Bones.HandR]: new Pose(v2.create(-3, 17.75)),
             }),
-            frame(def.katana.attack.damageTimes[0] * 0.3, {
+            frame(def("katana").attack.damageTimes[0] * 0.3, {
                 [Bones.HandL]: new Pose(v2.create(8.5, 13.25)).rotate(Math.PI * 0.2),
                 [Bones.HandR]: new Pose(v2.create(-3, 17.75)).rotate(Math.PI * 0.2),
             }),
-            frame(def.katana.attack.damageTimes[0] * 0.9, {
+            frame(def("katana").attack.damageTimes[0] * 0.9, {
                 [Bones.HandL]: new Pose(v2.create(8.5, 13.25)).rotate(-Math.PI * 1.2),
                 [Bones.HandR]: new Pose(v2.create(-3, 17.75)).rotate(-Math.PI * 1.2),
             }),
-            frame(def.katana.attack.cooldownTime, {
+            frame(def("katana").attack.cooldownTime, {
                 [Bones.HandL]: new Pose(v2.create(8.5, 13.25)),
                 [Bones.HandR]: new Pose(v2.create(-3, 17.75)),
             }),
         ],
         effects: [
-            effect(def.katana.attack.damageTimes[0], "animPlaySound", {
+            effect(def("katana").attack.damageTimes[0], "animPlaySound", {
                 sound: "swing",
             }),
-            effect(def.katana.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("katana").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     naginataSwing: {
@@ -382,50 +403,50 @@ export const Animations: Record<
                 [Bones.HandL]: new Pose(v2.create(19, -7.25)),
                 [Bones.HandR]: new Pose(v2.create(8.5, 24.25)),
             }),
-            frame(def.naginata.attack.damageTimes[0] * 0.3, {
+            frame(def("naginata").attack.damageTimes[0] * 0.3, {
                 [Bones.HandL]: new Pose(v2.create(19, -7.25)).rotate(Math.PI * 0.3),
                 [Bones.HandR]: new Pose(v2.create(8.5, 24.25)).rotate(Math.PI * 0.3),
             }),
-            frame(def.naginata.attack.damageTimes[0] * 0.9, {
+            frame(def("naginata").attack.damageTimes[0] * 0.9, {
                 [Bones.HandL]: new Pose(v2.create(19, -7.25)).rotate(-Math.PI * 0.85),
                 [Bones.HandR]: new Pose(v2.create(8.5, 24.25)).rotate(-Math.PI * 0.85),
             }),
-            frame(def.naginata.attack.cooldownTime, {
+            frame(def("naginata").attack.cooldownTime, {
                 [Bones.HandL]: new Pose(v2.create(19, -7.25)),
                 [Bones.HandR]: new Pose(v2.create(8.5, 24.25)),
             }),
         ],
         effects: [
-            effect(def.naginata.attack.damageTimes[0], "animPlaySound", {
+            effect(def("naginata").attack.damageTimes[0], "animPlaySound", {
                 sound: "swing",
             }),
-            effect(def.naginata.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("naginata").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     sawSwing: {
         keyframes: [
             frame(0, { [Bones.HandR]: new Pose(v2.create(1, 17.75)) }),
-            frame(def.saw.attack.damageTimes[0] * 0.4, {
+            frame(def("saw").attack.damageTimes[0] * 0.4, {
                 [Bones.HandR]: new Pose(v2.create(25, 6.25)).rotate(Math.PI * 0.3),
             }),
-            frame(def.saw.attack.damageTimes[0], {
+            frame(def("saw").attack.damageTimes[0], {
                 [Bones.HandR]: new Pose(v2.create(25, 6.25)).rotate(-Math.PI * 0.3),
             }),
-            frame(def.saw.attack.damageTimes[1] - 0.1, {
+            frame(def("saw").attack.damageTimes[1] - 0.1, {
                 [Bones.HandR]: new Pose(v2.create(25, 17.75)).rotate(-Math.PI * 0.25),
             }),
-            frame(def.saw.attack.damageTimes[1] * 0.6, {
+            frame(def("saw").attack.damageTimes[1] * 0.6, {
                 [Bones.HandR]: new Pose(v2.create(-36, 7.75)).rotate(-Math.PI * 0.25),
             }),
-            frame(def.saw.attack.damageTimes[1] + 0.2, {
+            frame(def("saw").attack.damageTimes[1] + 0.2, {
                 [Bones.HandR]: new Pose(v2.create(1, 17.75)),
             }),
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
             effect(0.4, "animPlaySound", { sound: "swing" }),
-            effect(def.saw.attack.damageTimes[0], "animMeleeCollision", {}),
-            effect(def.saw.attack.damageTimes[1], "animMeleeCollision", {
+            effect(def("saw").attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("saw").attack.damageTimes[1], "animMeleeCollision", {
                 playerHit: "playerHit2",
             }),
         ],
@@ -433,19 +454,19 @@ export const Animations: Record<
     cutReverseShort: {
         keyframes: [
             frame(0, { [Bones.HandR]: new Pose(v2.create(1, 17.75)) }),
-            frame(def.saw.attack.damageTimes[0] * 0.4, {
+            frame(def("saw").attack.damageTimes[0] * 0.4, {
                 [Bones.HandR]: new Pose(v2.create(25, 6.25)).rotate(Math.PI * 0.3),
             }),
-            frame(def.saw.attack.damageTimes[0], {
+            frame(def("saw").attack.damageTimes[0], {
                 [Bones.HandR]: new Pose(v2.create(25, 6.25)).rotate(-Math.PI * 0.3),
             }),
-            frame(def.fists.attack.cooldownTime, {
+            frame(def("fists").attack.cooldownTime, {
                 [Bones.HandR]: new Pose(v2.create(14, 17.75)),
             }),
         ],
         effects: [
             effect(0, "animPlaySound", { sound: "swing" }),
-            effect(def.fists.attack.damageTimes[0], "animMeleeCollision", {}),
+            effect(def("fists").attack.damageTimes[0], "animMeleeCollision", {}),
         ],
     },
     cook: {
@@ -555,5 +576,303 @@ export const Animations: Record<
             }),
         ],
         effects: [],
+    },
+
+    //
+    // Deploy Animations
+    //
+
+    // TODO: Bowie deploy & idle anim, 2nd deploy & idle anim for huntsman & bayonet
+
+    karambit_spin: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(Math.PI * 0.35),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 7).offset(v2.create(17.5, 5)),
+            }),
+            frame(0.575, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(17.5, 5)),
+            }, math.easeOutSine),
+            frame(0.65, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }),
+        ],
+        effects: [
+            effect(0, "animPlaySound", { sound: "deploy" }),
+            effect(0.1, "animPlaySound", { sound: "swing" }),
+            effect(0.2, "animPlaySound", { sound: "swing" }),
+            effect(0.3, "animPlaySound", { sound: "swing" }),
+        ],
+    },
+    karambit_rapidSpin: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(Math.PI * 0.35),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 3).offset(v2.create(17.5, 5)),
+            }),
+            frame(0.45, {
+                [Bones.HandR]: new Pose(v2.create(20, 10.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -1.3).offset(v2.create(17.5, 5)),
+            }, math.easeOutSine),
+            frame(0.65, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }, math.easeInSine),
+        ],
+        effects: [
+            effect(0, "animPlaySound", { sound: "deploy" }),
+            effect(0.125, "animPlaySound", { sound: "swing" }),
+            effect(0.25, "animPlaySound", { sound: "swing" }),
+        ],
+    },
+    bayonet_unsheathe: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)).rotate(-Math.PI * 0.25),
+                [Bones.HandR]: new Pose(v2.create(1, 17.75)).rotate(-Math.PI),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }),
+            frame(0.3, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(1, 17.75)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 0.05).offset(v2.create(0, 0)),
+            }, math.easeInSine),
+            frame(0.4, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(1, 17.75)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 0.35).offset(v2.create(0, 0)),
+            }, math.easeOutSine),
+            frame(0.65, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }, math.easeInSine),
+        ],
+        effects: [],
+    },
+    knuckles_slam: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(-5, 24)).rotate(-Math.PI * 3).offset(v2.create(-20, 0)),
+            }),
+            frame(0.3, {
+                [Bones.HandL]: new Pose(v2.create(18, -6)),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(-10, 18)).rotate(-Math.PI * 0.4).offset(v2.create(-20, 0)),
+            }),
+            frame(0.35, {
+                [Bones.HandL]: new Pose(v2.create(18, -6)),
+                [Bones.HandR]: new Pose(v2.create(23, -6)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(-Math.PI * 0.4).offset(v2.create(0, 0)),
+            }),
+            frame(0.45, {
+                [Bones.HandL]: new Pose(v2.create(18, -6)),
+                [Bones.HandR]: new Pose(v2.create(27, -13)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(-Math.PI * 0.4).offset(v2.create(0, 0)),
+            }, math.easeOutQuart),
+            frame(0.65, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }, math.easeInSine),
+        ],
+        effects: [],
+    },
+    knuckles_spin: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandL]: new Pose(v2.create(20, 6.25)).rotate(-Math.PI * 0.4),
+                [Bones.MeleeR]: new Pose(v2.create(0, 32)).rotate(-Math.PI * 3.5).offset(v2.create(20, 10)),
+            }),
+            frame(0.2, {
+                [Bones.HandL]: new Pose(v2.create(20, 6.25)).rotate(-Math.PI * 0.2),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(-14, 16)).rotate(-Math.PI * 1.75).offset(v2.create(20, 10)),
+            }),
+            frame(0.4, {
+                [Bones.HandL]: new Pose(v2.create(20, 6.25)),
+                [Bones.HandR]: new Pose(v2.create(19, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(-Math.PI * 0.25).offset(v2.create(0, 0)),
+            }),
+            frame(0.525, {
+                [Bones.HandL]: new Pose(v2.create(17, -3.25)),
+                [Bones.HandR]: new Pose(v2.create(23, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(-Math.PI * 0.3).offset(v2.create(0, 0)),
+            }),
+            frame(0.65, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }),
+        ],
+        effects: [],
+    },
+    huntsman_catch: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)).rotate(Math.PI * 0.5),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 3).offset(v2.create(0, 0)),
+            }, math.easeInSine),
+            frame(0.25, {
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)).rotate(Math.PI * 0.25),
+                [Bones.MeleeR]: new Pose(v2.create(-20, 0)).rotate(Math.PI * 1.5).offset(v2.create(0, 0)),
+            }),
+            frame(0.45, {
+                [Bones.HandR]: new Pose(v2.create(28, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 0.15).offset(v2.create(0, 0)),
+            }),
+            frame(0.475, {
+                [Bones.HandR]: new Pose(v2.create(31, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 0.15).offset(v2.create(0, 0)),
+            }, math.easeOutSine),
+            frame(0.675, {
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }, math.easeInOutSine),
+        ],
+        effects: [
+            effect(0, "animPlaySound", { sound: "deploy" }),
+            effect(0.45, "animPlaySound", { sound: "swing" }),
+        ],
+    },
+
+    //
+    // Idle / Inspect Animations
+    //
+
+    karambit_frontSpin: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }),
+            frame(0.2, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(Math.PI * 0.1),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 0.3).offset(v2.create(17.5, 5)),
+            }, math.easeOutSine),
+            frame(0.6, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(Math.PI * -0.1),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(-Math.PI * 4).offset(v2.create(17.5, 5)),
+            }, math.easeInSine),
+            frame(0.7, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(Math.PI * -0.1),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(-Math.PI * 4.5).offset(v2.create(17.5, 5)),
+            }, math.easeOutSine),
+            frame(0.85, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(-Math.PI * 4).offset(v2.create(0, 0)),
+            }, math.easeInSine),
+        ],
+        effects: [
+            effect(0.325, "animPlaySound", { sound: "swing" }),
+            effect(0.475, "animPlaySound", { sound: "swing" }),
+        ],
+    },
+    karambit_backSpin: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }),
+            frame(0.2, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(Math.PI * -0.1),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(-Math.PI * 0.5).offset(v2.create(17.5, 5)),
+            }, math.easeOutSine),
+            frame(0.6, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(Math.PI * 0.1),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 4).offset(v2.create(17.5, 5)),
+            }, math.easeInSine),
+            frame(0.7, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)).rotate(Math.PI * 0.1),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 4.3).offset(v2.create(17.5, 5)),
+            }, math.easeOutSine),
+            frame(0.85, {
+                [Bones.HandR]: new Pose(v2.create(6, 20.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * 4).offset(v2.create(0, 0)),
+            }, math.easeInSine),
+        ],
+        effects: [
+            effect(0.325, "animPlaySound", { sound: "swing" }),
+            effect(0.475, "animPlaySound", { sound: "swing" }),
+        ],
+    },
+    // Bayonet / Huntsman / Bowie
+    knife_inspect: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }, math.easeInOutSine),
+            frame(0.35, {
+                [Bones.HandL]: new Pose(v2.create(21, 8)),
+                [Bones.HandR]: new Pose(v2.create(21, 17.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -0.2).offset(v2.create(0, 0)),
+            }, math.easeInOutSine),
+            frame(0.5, {
+                [Bones.HandL]: new Pose(v2.create(21, -10)),
+                [Bones.HandR]: new Pose(v2.create(21, 17.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -0.25).offset(v2.create(0, 0)),
+            }, math.easeInOutSine),
+            frame(0.8, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)).rotate(Math.PI * -0.05),
+                [Bones.HandR]: new Pose(v2.create(21, 17.25)).rotate(Math.PI * -0.35),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -0.925).offset(v2.create(0, 0)),
+            }, math.easeInOutSine),
+            frame(0.85, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)).rotate(Math.PI * -0.05),
+                [Bones.HandR]: new Pose(v2.create(21, 17.25)).rotate(Math.PI * -0.35),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -0.925).offset(v2.create(0, 0)),
+            }),
+            frame(1.15, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }, math.easeInOutSine),
+        ],
+        effects: [
+            effect(0.35, "animPlaySound", { sound: "deploy" }),
+            effect(0.8, "animPlaySound", { sound: "deploy" }),
+        ],
+    },
+    knuckles_bash: {
+        keyframes: [
+            frame(0, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }),
+            frame(0.15, {
+                [Bones.HandL]: new Pose(v2.create(16, -18)),
+                [Bones.HandR]: new Pose(v2.create(16, 18)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -0.25).offset(v2.create(0, 0)),
+            }, math.easeOutSine),
+            frame(0.2, {
+                [Bones.HandL]: new Pose(v2.create(16, -18)),
+                [Bones.HandR]: new Pose(v2.create(16, 18)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -0.25).offset(v2.create(0, 0)),
+            }),
+            frame(0.35, {
+                [Bones.HandL]: new Pose(v2.create(16, -18)).rotate(Math.PI * 0.2),
+                [Bones.HandR]: new Pose(v2.create(16, 18)).rotate(Math.PI * -0.2),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -0.25).offset(v2.create(0, 0)),
+            }, math.easeOutBounce),
+            frame(0.45, {
+                [Bones.HandL]: new Pose(v2.create(16, -18)).rotate(Math.PI * 0.2),
+                [Bones.HandR]: new Pose(v2.create(16, 18)).rotate(Math.PI * -0.2),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(Math.PI * -0.2).offset(v2.create(0, 0)),
+            }),
+            frame(0.7, {
+                [Bones.HandL]: new Pose(v2.create(14, -12.25)),
+                [Bones.HandR]: new Pose(v2.create(14, 12.25)),
+                [Bones.MeleeR]: new Pose(v2.create(0, 0)).rotate(0).offset(v2.create(0, 0)),
+            }, math.easeOutQuad),
+        ],
+        effects: [
+            effect(0.25, "animPlaySound", { sound: "idle" }),
+        ],
     },
 };

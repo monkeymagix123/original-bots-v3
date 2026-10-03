@@ -1,12 +1,12 @@
-import { GameConfig, type Plane as PlaneType } from "../gameConfig";
-import { type Vec2, v2 } from "./../utils/v2";
-import { type AbstractMsg, BitSizes, type BitStream, Constants } from "./net";
+import { GameConfig, type Plane as PlaneType } from "../gameConfig.ts";
+import { v2, type Vec2 } from "./../utils/v2.ts";
+import { type AbstractMsg, BitSizes, type BitStream, Constants } from "./net.ts";
 import {
     ObjectSerializeFns,
     type ObjectsFullData,
     type ObjectsPartialData,
     type ObjectType,
-} from "./objectSerializeFns";
+} from "./objectSerializeFns.ts";
 
 function serializeActivePlayer(s: BitStream, data: LocalDataWithDirty) {
     s.writeBoolean(data.healthDirty);
@@ -248,13 +248,14 @@ export const UpdateExtFlags = {
 export class UpdateMsg implements AbstractMsg {
     delObjIds: number[] = [];
     fullObjects: Array<
-        ObjectsFullData[ObjectType] &
-            ObjectsPartialData[ObjectType] & {
-                __id: number;
-                __type: ObjectType;
-                partialStream: BitStream;
-                fullStream: BitStream;
-            }
+        & ObjectsFullData[ObjectType]
+        & ObjectsPartialData[ObjectType]
+        & {
+            __id: number;
+            __type: ObjectType;
+            partialStream: BitStream;
+            fullStream: BitStream;
+        }
     > = [];
 
     partObjects: Array<
@@ -311,7 +312,6 @@ export class UpdateMsg implements AbstractMsg {
 
         if (this.fullObjects.length) {
             s.writeArray(this.fullObjects, 16, (obj) => {
-                s.writeUint8(obj.__type);
                 s.writeBytes(obj.partialStream, 0, obj.partialStream.byteIndex);
                 s.writeBytes(obj.fullStream, 0, obj.fullStream.byteIndex);
             });
@@ -320,7 +320,6 @@ export class UpdateMsg implements AbstractMsg {
         }
 
         s.writeArray(this.partObjects, 16, (obj) => {
-            s.writeUint8(obj.__type);
             s.writeBytes(obj.partialStream, 0, obj.partialStream.byteIndex);
         });
 
@@ -815,6 +814,11 @@ export interface LocalData {
     health: number;
     zoom: number;
     boost: number;
+    action: {
+        time: number;
+        duration: number;
+        targetId: number;
+    };
     scope: string;
     curWeapIdx: number;
     inventory: Record<string, number>;
@@ -830,34 +834,18 @@ export interface LocalDataWithDirty extends LocalData {
     boostDirty: boolean;
     zoomDirty: boolean;
     actionDirty: boolean;
-    action: {
-        time: number;
-        duration: number;
-        targetId: number;
-    };
     inventoryDirty: boolean;
     weapsDirty: boolean;
     spectatorCountDirty: boolean;
 }
 
-// the non-optional properties are used by both server and client
 export interface PlayerStatus {
-    playerId?: number;
+    hasData: boolean;
     pos: Vec2;
-    posTarget?: Vec2;
-    posDelta?: number;
-    health?: number;
-    posInterp?: number;
     visible: boolean;
     dead: boolean;
     downed: boolean;
-    disconnected?: boolean;
     role: string;
-    timeSinceUpdate?: number;
-    timeSinceVisible?: number;
-    minimapAlpha?: number;
-    minimapVisible?: boolean;
-    hasData: boolean;
 }
 
 export interface GroupStatus {

@@ -1,11 +1,10 @@
 import $ from "jquery";
-import { type MapDef, MapDefs } from "../../shared/defs/mapDefs";
-import { TeamModeToString } from "../../shared/defs/types/misc";
-import type { SiteInfoRes } from "../../shared/types/api";
-
-import type { ConfigManager } from "./config";
-import { device } from "./device";
-import type { Localization } from "./ui/localization";
+import { type MapDefKey, MapDefs } from "../../shared/defs/mapDefs.ts";
+import { GameConfig } from "../../shared/gameConfig.ts";
+import type { SiteInfoRes } from "../../shared/types/api.ts";
+import type { ConfigManager } from "./config.ts";
+import { device } from "./device.ts";
+import type { Localization } from "./ui/localization.ts";
 
 export class SiteInfo {
     info: SiteInfoRes = {
@@ -41,8 +40,6 @@ export class SiteInfo {
         public config: ConfigManager,
         public localization: Localization,
     ) {
-        this.config = config;
-        this.localization = localization;
     }
 
     load() {
@@ -50,7 +47,6 @@ export class SiteInfo {
         /*
 
         const locale = this.localization.getLocale();
-        const siteInfoUrl = api.resolveUrl(`/api/site_info?language=${locale}`);
 
         const mainSelector = $("#server-opts");
         const teamSelector = $("#team-server-opts");
@@ -63,7 +59,8 @@ export class SiteInfo {
             teamSelector.append(elm);
         }
 
-        $.ajax(siteInfoUrl).done((data: SiteInfoRes) => {
+        const siteInfoUrl = api.resolveUrl(`/api/site_info?language=${locale}`);
+        fetch(siteInfoUrl).then(res => res.json()).then((data: SiteInfoRes) => {
             this.info = data || {};
             this.loaded = true;
             this.updatePageFromInfo();
@@ -77,11 +74,11 @@ export class SiteInfo {
         const modes = this.info.modes || [];
         for (let i = 0; i < modes.length; i++) {
             const mode = modes[i];
-            const mapDef = (MapDefs[mode.mapName as keyof typeof MapDefs] || MapDefs.main)
+            const mapDef = (MapDefs[mode.mapName as MapDefKey] || MapDefs.main)
                 .desc;
             const buttonText = mapDef.buttonText
                 ? mapDef.buttonText
-                : TeamModeToString[mode.teamMode];
+                : GameConfig.TeamModeToString[mode.teamMode];
             availableModes.push({
                 icon: mapDef.icon,
                 buttonCss: mapDef.buttonCss,
@@ -111,12 +108,14 @@ export class SiteInfo {
                 const style = getGameModeStyles[i];
                 const info = this.info.modes[i];
 
-                const def = MapDefs[info.mapName as keyof typeof MapDefs] as MapDef;
+                const def = MapDefs[info.mapName as MapDefKey];
                 const name = def.desc.name;
                 const mapName = info.mapName;
 
                 const btn = $(
-                    `<a class='btn-green btn-darken menu-option btn-play' data-mapName='${info.mapName}'>Play ${name} ${name.toLowerCase() == mapName ? "" : `(${mapName})`}</a>`,
+                    `<a class='btn-green btn-darken menu-option btn-play' data-mapName='${info.mapName}'>Play ${name} ${
+                        name.toLowerCase() == mapName ? "" : `(${mapName})`
+                    }</a>`,
                 );
                 btn.insertAfter(mainBtn);
 
@@ -200,8 +199,9 @@ export class SiteInfo {
             }
             featuredYoutuberElem.css("display", displayYoutuber ? "block" : "none");
 
-            const mapDef = MapDefs[this.info.clientTheme] as MapDef;
+            const mapDef = MapDefs[this.info.clientTheme];
             if (mapDef) {
+                this.config.set("clientTheme", this.info.clientTheme);
                 this.config.set("cachedBgImg", mapDef.desc.backgroundImg);
                 const bg = document.getElementById("background");
                 if (bg) {

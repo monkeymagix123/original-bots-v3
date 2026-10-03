@@ -1,29 +1,30 @@
 import * as PIXI from "pixi.js-legacy";
-import { GameObjectDefs } from "../../../shared/defs/gameObjectDefs";
-import type { OutfitDef } from "../../../shared/defs/gameObjects/outfitDefs";
-import { type Action, type Anim, GameConfig } from "../../../shared/gameConfig";
-import type { MapMsg } from "../../../shared/net/mapMsg";
-import { type ObjectData, ObjectType } from "../../../shared/net/objectSerializeFns";
-import { collider } from "../../../shared/utils/collider";
-import { type Loadout, loadout as loadouts } from "../../../shared/utils/loadout";
-import { math } from "../../../shared/utils/math";
-import { v2 } from "../../../shared/utils/v2";
-import type { Account } from "../account";
-import type { AudioManager } from "../audioManager";
-import { Camera } from "../camera";
-import type { ConfigManager, DebugRenderOpts } from "../config";
-import { debugLines } from "../debug/debugLines";
-import { device } from "../device";
-import type { Game } from "../game";
-import type { InputBinds } from "../inputBinds";
-import { Map } from "../map";
-import { DecalBarn } from "../objects/decal";
-import { Creator } from "../objects/objectPool";
-import { ParticleBarn } from "../objects/particles";
-import { type Player, PlayerBarn } from "../objects/player";
-import { SmokeBarn } from "../objects/smoke";
-import { Renderer } from "../renderer";
-import type { UiManager2 } from "./ui2";
+
+import type { OutfitDef } from "../../../shared/defs/gameObjects/outfitDefs.ts";
+import { GameObjectDefs } from "../../../shared/defs/register.ts";
+import { type Action, type Anim, GameConfig } from "../../../shared/gameConfig.ts";
+import type { MapMsg } from "../../../shared/net/mapMsg.ts";
+import { type ObjectData, ObjectType } from "../../../shared/net/objectSerializeFns.ts";
+import { collider } from "../../../shared/utils/collider.ts";
+import { type Loadout, loadout as loadouts } from "../../../shared/utils/loadout.ts";
+import { math } from "../../../shared/utils/math.ts";
+import { v2 } from "../../../shared/utils/v2.ts";
+import type { Account } from "../account.ts";
+import type { AudioManager } from "../audioManager.ts";
+import { Camera } from "../camera.ts";
+import type { ConfigManager, DebugRendererOpts } from "../config.ts";
+import { debugLines } from "../debug/debugLines.ts";
+import { device } from "../device.ts";
+import type { Game } from "../game.ts";
+import type { InputBinds } from "../inputBinds.ts";
+import { Map } from "../map.ts";
+import { DecalBarn } from "../objects/decal.ts";
+import { Creator } from "../objects/objectPool.ts";
+import { ParticleBarn } from "../objects/particles.ts";
+import { type Player, PlayerBarn } from "../objects/player.ts";
+import { SmokeBarn } from "../objects/smoke.ts";
+import { Renderer } from "../renderer.ts";
+import type { UiManager2 } from "./ui2.ts";
 
 export class LoadoutDisplay {
     active = false;
@@ -49,6 +50,7 @@ export class LoadoutDisplay {
     useDebugZoom = false;
 
     outfitOld!: string;
+    meleeOld!: string;
 
     animIdleTicker!: number;
     animSeq!: number;
@@ -121,6 +123,7 @@ export class LoadoutDisplay {
         this.viewOld = this.view;
 
         this.outfitOld = this.loadout.outfit;
+        this.meleeOld = this.loadout.melee;
 
         this.map.loadMap(
             {
@@ -223,15 +226,22 @@ export class LoadoutDisplay {
     }
 
     setLoadout(loadout: Loadout, skipEffects?: boolean) {
+        const meleeChanged = this.loadout.melee !== loadout.melee;
         this.loadout = loadouts.validate(loadout);
-        this.updateCharDisplay();
+        this.updateCharDisplay({
+            animType: meleeChanged ? GameConfig.Anim.None : this.activePlayer?.currentAnim(),
+            animSeq: meleeChanged ? -1 : this.activePlayer?.anim.seq,
+        });
         if (skipEffects) {
             this.outfitOld = this.loadout.outfit;
+            this.meleeOld = this.loadout.melee;
         }
         if (this.activePlayer) {
             this.activePlayer.playActionStartSfx = true;
         }
-        this.animIdleTicker = 0;
+        if (this.activePlayer?.currentAnim() === GameConfig.Anim.None) {
+            this.animIdleTicker = 0;
+        }
     }
 
     setView(view: string) {
@@ -258,17 +268,19 @@ export class LoadoutDisplay {
         };
 
         // HACK: clear the player particle emitter and reset the anim counter
-        if (this.activePlayer?.useItemEmitter) {
-            this.activePlayer.useItemEmitter.stop();
-            this.activePlayer.useItemEmitter = null;
-            this.animIdleTicker = 0;
+        if (this.activePlayer?.useItemEmitters.length) {
+            for (const emitter of this.activePlayer.useItemEmitters) {
+                emitter.stop();
+            }
+
+            this.activePlayer.useItemEmitters = [];
         }
 
         const obj: ObjectData<ObjectType.Player> = {
             outfit: this.loadout.outfit,
             backpack: "backpack02",
-            helmet: "helmet01",
-            chest: "chest03",
+            helmet: "",
+            chest: "",
             activeWeapon: this.loadout.melee,
             layer: 0,
             dead: false,
@@ -310,12 +322,12 @@ export class LoadoutDisplay {
     getCameraTargetZoom() {
         return (
             ((document.getElementById("modal-content-left")!.getBoundingClientRect()
-                .height /
-                this.camera.m_screenHeight) *
-                0.2 *
-                this.camera.m_screenHeight *
-                0.5) /
-            this.camera.m_ppu
+                .height
+                / this.camera.m_screenHeight)
+                * 0.2
+                * this.camera.m_screenHeight
+                * 0.5)
+            / this.camera.m_ppu
         );
     }
 
@@ -372,7 +384,7 @@ export class LoadoutDisplay {
     }
 
     update(dt: number, hasFocus: boolean) {
-        const debug = {} as DebugRenderOpts;
+        const debug = {} as DebugRendererOpts;
 
         // Camera
         this.camera.m_pos = v2.sub(this.activePlayer.m_pos, this.cameraOffset);
@@ -387,41 +399,59 @@ export class LoadoutDisplay {
         // DebugLines.addAabb(modalAabb.min, modalAabb.max, 0xff0000, 0.0);
         // DebugLines.addCircle(this.m_activePlayer.pos, 1.5, 0xff0000, 0.0);
 
-        if (
-            hasFocus &&
-            (this.view == this.viewOld ||
-                (this.view != "heal" && this.view != "boost") ||
-                (this.animIdleTicker = 0),
-            (this.viewOld = this.view),
-            (this.animIdleTicker -= dt),
-            this.animIdleTicker < 0)
-        ) {
-            if (this.view == "heal") {
-                this.actionSeq = (this.actionSeq + 1) % 8;
-                const options = {
-                    actionType: GameConfig.Action.UseItem,
-                    actionItem: "bandage",
-                    actionSeq: this.actionSeq,
-                };
-                this.updateCharDisplay(options);
-                this.animIdleTicker = 2 + Math.random();
-            } else if (this.view == "boost") {
-                this.actionSeq = (this.actionSeq + 1) % 8;
-                const options = {
-                    actionType: GameConfig.Action.UseItem,
-                    actionItem: "soda",
-                    actionSeq: this.actionSeq,
-                };
-                this.updateCharDisplay(options);
-                this.animIdleTicker = 2 + Math.random();
-            } else if (this.view != "emote" && this.view != "crosshair") {
-                this.animSeq = (this.animSeq + 1) % 8;
-                const options = {
-                    animType: GameConfig.Anim.Melee,
-                    animSeq: this.animSeq,
-                };
-                this.updateCharDisplay(options);
-                this.animIdleTicker = 1.5 + Math.random();
+        // Throw out an idle anim once in a while
+        if (hasFocus) {
+            if (
+                this.view != this.viewOld
+                && (this.view == "heal" || this.view == "boost")
+            ) {
+                this.animIdleTicker = 0.0;
+            }
+            this.viewOld = this.view;
+
+            if (this.activePlayer.currentAnim() === GameConfig.Anim.None) {
+                this.animIdleTicker -= dt;
+            }
+
+            if (this.animIdleTicker < 0.0) {
+                if (this.view == "heal") {
+                    this.actionSeq = (this.actionSeq + 1) % 8;
+                    const options = {
+                        actionType: GameConfig.Action.UseItem,
+                        actionItem: "bandage",
+                        actionSeq: this.actionSeq,
+                    };
+                    this.updateCharDisplay(options);
+                    this.animIdleTicker = 2 + Math.random();
+                } else if (this.view == "boost") {
+                    this.actionSeq = (this.actionSeq + 1) % 8;
+                    const options = {
+                        actionType: GameConfig.Action.UseItem,
+                        actionItem: "soda",
+                        actionSeq: this.actionSeq,
+                    };
+                    this.updateCharDisplay(options);
+                    this.animIdleTicker = 2 + Math.random();
+                } else if (this.view != "emote" && this.view != "crosshair") {
+                    let animType = GameConfig.Anim.Melee;
+                    const meleeDef = GameObjectDefs.typeToDef(this.loadout.melee, "melee");
+                    // force the deploy anim if we just switched to that melee
+                    // otherwise have a 50% chance of playing the idle anim instead of attack
+                    if (this.meleeOld !== this.loadout.melee && meleeDef.anim.deployAnims) {
+                        animType = GameConfig.Anim.DeployMelee;
+                    } else if (Math.random() < 0.5 && meleeDef.anim.idleAnims) {
+                        animType = GameConfig.Anim.IdleMelee;
+                    }
+                    this.meleeOld = this.loadout.melee;
+
+                    this.animSeq = (this.animSeq + 1) % 8;
+                    const options = {
+                        animType: animType,
+                        animSeq: this.animSeq,
+                    };
+                    this.updateCharDisplay(options);
+                    this.animIdleTicker = 1.5 + Math.random();
+                }
             }
         }
 
@@ -429,7 +459,7 @@ export class LoadoutDisplay {
         const outfitDirty = this.loadout.outfit != this.outfitOld;
         this.outfitOld = this.loadout.outfit;
         if (hasFocus && outfitDirty) {
-            const itemDef = GameObjectDefs[this.loadout.outfit] as OutfitDef;
+            const itemDef = GameObjectDefs.typeToDefSafe(this.loadout.outfit) as OutfitDef;
             if (itemDef) {
                 this.audioManager.playSound(itemDef.sound.pickup, {
                     channel: "ui",
@@ -460,13 +490,13 @@ export class LoadoutDisplay {
         );
         this.particleBarn.m_update(dt, this.camera);
         this.decalBarn.m_update(dt, this.camera, this.renderer);
-        this.renderer.m_update(dt, this.camera, this.map);
+        this.renderer.m_update(dt, this.camera, this.map, false);
         this.activePlayer.playActionStartSfx = false;
 
         this.render(dt, debug);
     }
 
-    render(_dt: number, debug: DebugRenderOpts) {
+    render(_dt: number, debug: DebugRendererOpts) {
         const grassColor = this.map.mapLoaded
             ? this.map.getMapDef().biome.colors.grass
             : 0x80af49;

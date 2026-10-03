@@ -1,9 +1,10 @@
-import { util } from "../../utils/util";
-import type { MapDef } from "../mapDefs";
-import { MapId } from "../types/misc";
-import { Main, type PartialMapDef } from "./baseDefs";
+import { MapId } from "../../gameConfig.ts";
+import { util } from "../../utils/util.ts";
+import type { DeepPartial } from "../../utils/util.ts";
+import type { MapDef } from "../mapDefs.ts";
+import { Main } from "./baseDefs.ts";
 
-const mapDef: PartialMapDef = {
+const mapDef: DeepPartial<MapDef> = {
     mapId: MapId.Wave,
     isWave: true,
     wave: {
@@ -33,7 +34,7 @@ const mapDef: PartialMapDef = {
         buttonCss: "",
     },
     assets: {
-        atlases: ["gradient", "loadout", "shared", "faction"],
+        atlases: ["loadout", "shared", "main"],
     },
     gameMode: {
         maxPlayers: 100,

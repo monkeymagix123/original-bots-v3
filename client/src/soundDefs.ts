@@ -164,6 +164,45 @@ const Sounds: Record<string, Record<string, SoundDef>> = {
             path: "audio/guns/deagle_switch_01.mp3",
             volume: 1,
         },
+        barrett_01: {
+            path: "audio/guns/barrett_01.mp3",
+            volume: 1,
+            maxInstances: 5,
+        },
+        barrett_reload_01: {
+            path: "audio/guns/barrett_reload_01.mp3",
+            volume: 1.25,
+        },
+        barrett_switch_01: {
+            path: "audio/guns/barrett_switch_01.mp3",
+            volume: 1,
+        },
+        sw500_01: {
+            path: "audio/guns/sw500_01.mp3",
+            volume: 1,
+            maxInstances: 5,
+        },
+        sw500_reload_01: {
+            path: "audio/guns/sw500_reload_01.mp3",
+            volume: 1,
+        },
+        sw500_switch_01: {
+            path: "audio/guns/sw500_switch_01.mp3",
+            volume: 1,
+        },
+        ash12_01: {
+            path: "audio/guns/ash12_01.mp3",
+            volume: 1,
+            maxInstances: 5,
+        },
+        ash12_reload_01: {
+            path: "audio/guns/ash12_reload_01.mp3",
+            volume: 1.25,
+        },
+        ash12_switch_01: {
+            path: "audio/guns/ash12_switch_01.mp3",
+            volume: 1,
+        },
         flare_gun_01: {
             path: "audio/guns/flare_gun_01.mp3",
             volume: 1,
@@ -1246,6 +1285,10 @@ const Sounds: Record<string, Record<string, SoundDef>> = {
             path: "audio/sfx/footstep_carpet_01.mp3",
             volume: 1,
         },
+        knuckles_bash_01: {
+            path: "audio/sfx/knuckles_bash_01.mp3",
+            volume: 0.5,
+        },
         punch_swing_01: {
             path: "audio/sfx/punch_swing_01.mp3",
             volume: 1,
@@ -1613,6 +1656,16 @@ const Sounds: Record<string, Record<string, SoundDef>> = {
             volume: 1,
             preload: false,
         },
+        reserve_music_01: {
+            path: "audio/ambient/reserve_music_01.mp3",
+            volume: 0.66,
+            preload: false,
+        },
+        reserve_music_02: {
+            path: "audio/ambient/reserve_music_02.mp3",
+            volume: 0.66,
+            preload: false,
+        },
         ambient_lab_01: {
             path: "audio/ambient/ambient_lab_01.mp3",
             volume: 0.2,
@@ -1866,10 +1919,16 @@ const Sounds: Record<string, Record<string, SoundDef>> = {
         },
     },
     music: {
-        menu_music: {
+        menu_music_01: {
             path: "audio/ambient/menu_music_01.mp3",
             volume: 1,
             loadPriority: 2,
+        },
+        menu_music_02: {
+            path: "audio/ambient/menu_music_02.mp3",
+            volume: 1,
+            loadPriority: 2,
+            preload: false,
         },
     },
 };

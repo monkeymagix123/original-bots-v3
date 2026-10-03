@@ -1,12 +1,12 @@
-import { ObjectType } from "../../../../shared/net/objectSerializeFns";
-import { collider } from "../../../../shared/utils/collider";
-import { type Vec2, v2 } from "../../../../shared/utils/v2";
-import type { Game } from "../game";
-import type { Player } from "../objects/player";
-import type { BotPersonality } from "./botBrain";
-import type { MovementIntent } from "./botDecision";
-import type { BotSkillProfile } from "./botDifficulty";
-import type { BotRandom } from "./botRandom";
+import { ObjectType } from "../../../../shared/net/objectSerializeFns.ts";
+import { collider } from "../../../../shared/utils/collider.ts";
+import { v2, type Vec2 } from "../../../../shared/utils/v2.ts";
+import type { Game } from "../game.ts";
+import type { Player } from "../objects/player.ts";
+import type { BotPersonality } from "./botBrain.ts";
+import type { MovementIntent } from "./botDecision.ts";
+import type { BotSkillProfile } from "./botDifficulty.ts";
+import type { BotRandom } from "./botRandom.ts";
 
 export interface MovementResult {
     direction: Vec2;
@@ -72,12 +72,11 @@ export class BotMovementController {
                     this.strafeTime -= dt;
                     if (this.strafeTime <= 0) {
                         // Reversal is a decision held for hundreds of milliseconds.
-                        const styleReversal =
-                            this.personality.playstyle === "movement-heavy"
-                                ? 0.2
-                                : this.personality.playstyle === "aim-focused"
-                                  ? -0.2
-                                  : 0;
+                        const styleReversal = this.personality.playstyle === "movement-heavy"
+                            ? 0.2
+                            : this.personality.playstyle === "aim-focused"
+                            ? -0.2
+                            : 0;
                         if (
                             this.rng.chance(
                                 0.35 + this.profile.dodgingSkill * 0.35 + styleReversal,
@@ -85,8 +84,7 @@ export class BotMovementController {
                         ) {
                             this.strafeDirection = this.strafeDirection === 1 ? -1 : 1;
                         }
-                        const styleDuration =
-                            this.personality.playstyle === "movement-heavy" ? 0.8 : 1;
+                        const styleDuration = this.personality.playstyle === "movement-heavy" ? 0.8 : 1;
                         this.strafeTime = this.rng.range(0.42, 1.05) * styleDuration;
                     }
                     direction = v2.normalizeSafe(
@@ -102,10 +100,9 @@ export class BotMovementController {
             direction = this.avoidImmediateObstacle(direction);
         }
 
-        const changedDirection =
-            v2.lengthSqr(direction) > 0 &&
-            v2.lengthSqr(this.lastDirection) > 0 &&
-            v2.dot(direction, this.lastDirection) < 0.35;
+        const changedDirection = v2.lengthSqr(direction) > 0
+            && v2.lengthSqr(this.lastDirection) > 0
+            && v2.dot(direction, this.lastDirection) < 0.35;
         this.lastDirection = direction;
         return { direction, stuckRecovered, changedDirection, useDoor: this.useDoor };
     }
@@ -116,19 +113,19 @@ export class BotMovementController {
         const objects = this.game.grid.intersectLineSegment(this.player.pos, end);
         for (const object of objects) {
             if (
-                object.__type !== ObjectType.Obstacle ||
-                object.dead ||
-                !object.collidable ||
-                object.layer !== this.player.layer ||
-                !collider.intersectSegment(object.collider, this.player.pos, end)
+                object.__type !== ObjectType.Obstacle
+                || object.dead
+                || !object.collidable
+                || object.layer !== this.player.layer
+                || !collider.intersectSegment(object.collider, this.player.pos, end)
             ) {
                 continue;
             }
             if (
-                object.isDoor &&
-                object.interactable &&
-                v2.distance(this.player.pos, object.pos) <=
-                    object.interactionRad + this.player.rad
+                object.isDoor
+                && object.interactable
+                && v2.distance(this.player.pos, object.pos)
+                    <= object.interactionRad + this.player.rad
             ) {
                 this.useDoor = true;
                 return direction;

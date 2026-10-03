@@ -3,13 +3,13 @@ import fs from "node:fs";
 import Path from "node:path";
 import type { ISpritesheetData } from "pixi.js-legacy";
 import type { Plugin } from "vite";
-import type { Atlas } from "../../shared/defs/mapDefs";
-import { assert } from "../../shared/utils/util";
-import { AtlasManager, atlasLogger, imageFolder } from "./atlasBuilder";
-import { type AtlasRes, AtlasResolutions } from "./atlasDefs";
+import type { Atlas } from "../../shared/defs/mapDefs.ts";
+import { assert } from "../../shared/utils/util.ts";
+import { atlasFormat, atlasLogger, AtlasManager, imageFolder } from "./atlasBuilder.ts";
+import { type AtlasRes, AtlasResolutions } from "./atlasDefs.ts";
 
-export function atlasBuilderPlugin(): Plugin[] {
-    const atlasManager = new AtlasManager();
+export function atlasBuilderPlugin(isProduction: boolean): Plugin[] {
+    const atlasManager = new AtlasManager(isProduction);
     atlasManager.loadFromDisk();
 
     const atlasesJson: Record<AtlasRes, Record<string, ISpritesheetData[]>> = {
@@ -85,12 +85,14 @@ export function atlasBuilderPlugin(): Plugin[] {
                             );
                             const data = fs.readFileSync(imagePath);
 
-                            const pngHash = crypto
+                            const imgHash = crypto
                                 .createHash("sha256")
                                 .update(data)
                                 .digest("hex")
                                 .substring(0, 8);
-                            const fileName = `assets/${sheet.meta.image!.replace(".png", `-${pngHash}.png`)}`;
+                            const fileName = `assets/${
+                                sheet.meta.image!.replace(`.${atlasFormat}`, `-${imgHash}.${atlasFormat}`)
+                            }`;
 
                             this.emitFile({
                                 type: "asset",

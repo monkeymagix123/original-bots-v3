@@ -1,4 +1,5 @@
-import { Rarity } from "../../gameConfig";
+import { Rarity } from "../../gameConfig.ts";
+import type { BaseLoadoutItem } from "./itemTypes.ts";
 
 export enum EmoteCategory {
     Locked,
@@ -11,10 +12,8 @@ export enum EmoteCategory {
     Default,
 }
 
-export interface EmoteDef {
-    readonly type: "emote";
-    name?: string;
-    rarity?: Rarity;
+export interface EmoteDef extends BaseLoadoutItem {
+    type: "emote";
     texture: string;
     sound: string;
     channel: string;
@@ -260,6 +259,26 @@ export const EmotesDefs: Record<string, EmoteDef> = {
         name: "Happy Face",
         rarity: Rarity.Common,
         texture: "face-happy.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Faces,
+    },
+    emote_boffy: {
+        type: "emote",
+        name: "Boffy",
+        rarity: Rarity.Common,
+        texture: "face-boffy.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Faces,
+    },
+    emote_sadboffy: {
+        type: "emote",
+        name: "Sad Boffy",
+        rarity: Rarity.Common,
+        texture: "face-sadboffy.img",
         sound: "emote_01",
         channel: "ui",
         teamOnly: false,
@@ -1115,16 +1134,6 @@ export const EmotesDefs: Record<string, EmoteDef> = {
         teamOnly: false,
         category: EmoteCategory.Flags,
     },
-    emote_flagisrael: {
-        type: "emote",
-        name: "Flag Israel",
-        rarity: Rarity.Common,
-        texture: "flag-israel.img",
-        sound: "emote_01",
-        channel: "ui",
-        teamOnly: false,
-        category: EmoteCategory.Flags,
-    },
     emote_flaggeorgia: {
         type: "emote",
         name: "Flag Georgia",
@@ -1385,6 +1394,16 @@ export const EmotesDefs: Record<string, EmoteDef> = {
         teamOnly: false,
         category: EmoteCategory.Food,
     },
+    emote_leaf: {
+        type: "emote",
+        name: "Leaf",
+        rarity: Rarity.Common,
+        texture: "leaf.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Other,
+    },
     emote_trunk: {
         type: "emote",
         name: "Tree Trunk",
@@ -1605,6 +1624,36 @@ export const EmotesDefs: Record<string, EmoteDef> = {
         teamOnly: false,
         category: EmoteCategory.Flags,
     },
+    emote_flagiran: {
+        type: "emote",
+        name: "Flag Iran",
+        rarity: Rarity.Common,
+        texture: "flag-iran.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Flags,
+    },
+    emote_flaglebanon: {
+        type: "emote",
+        name: "Flag Lebanon",
+        rarity: Rarity.Common,
+        texture: "flag-lebanon.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Flags,
+    },
+    emote_flagyemen: {
+        type: "emote",
+        name: "Flag Yemen",
+        rarity: Rarity.Common,
+        texture: "flag-yemen.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Flags,
+    },
     emote_flagtransgender: {
         type: "emote",
         name: "Flag Transgender",
@@ -1660,6 +1709,16 @@ export const EmotesDefs: Record<string, EmoteDef> = {
         name: "Flag Non-Binary",
         rarity: Rarity.Common,
         texture: "flag-nonbinary.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Flags,
+    },
+    emote_flagbisexual: {
+        type: "emote",
+        name: "Flag Bisexual",
+        rarity: Rarity.Common,
+        texture: "flag-bisexual.img",
         sound: "emote_01",
         channel: "ui",
         teamOnly: false,
@@ -1744,5 +1803,78 @@ export const EmotesDefs: Record<string, EmoteDef> = {
         channel: "ui",
         teamOnly: false,
         category: EmoteCategory.Logos,
+    },
+    emote_antisocial: {
+        type: "emote",
+        name: "Antisocial",
+        rarity: Rarity.Common,
+        texture: "antisocial.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Other,
+    },
+
+    // Pass 2
+
+    emote_timeout: {
+        type: "emote",
+        name: "Timeout!",
+        rarity: Rarity.Uncommon,
+        texture: "timeout.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Other,
+    },
+    emote_traumatizedface: {
+        type: "emote",
+        name: "Traumatized Face",
+        rarity: Rarity.Rare,
+        texture: "face-traumatized.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Faces,
+    },
+    emote_bruh: {
+        type: "emote",
+        name: "b r u h",
+        rarity: Rarity.Uncommon,
+        texture: "bruh.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Other,
+    },
+    emote_flatteredface: {
+        type: "emote",
+        name: "Flattered Face",
+        rarity: Rarity.Rare,
+        texture: "face-flattered.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Faces,
+    },
+    emote_salutingface: {
+        type: "emote",
+        name: "Saluting Face",
+        rarity: Rarity.Uncommon,
+        texture: "face-salute.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Faces,
+    },
+    emote_screamingface: {
+        type: "emote",
+        name: "Screaming Face",
+        rarity: Rarity.Rare,
+        texture: "face-screaming.img",
+        sound: "emote_01",
+        channel: "ui",
+        teamOnly: false,
+        category: EmoteCategory.Faces,
     },
 };
