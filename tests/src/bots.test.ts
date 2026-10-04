@@ -185,6 +185,128 @@ describe("human-like aim", () => {
         expect(averageError("beginner")).toBeGreaterThan(0.07);
         expect(averageError("expert")).toBeLessThan(0.025);
     });
+
+    test("a velocity reversal does not change lead on its first visible tick", () => {
+        const shooter = v2.create(0, 0);
+        const target = v2.create(20, 0);
+        const up = v2.create(0, 12);
+        const down = v2.create(0, -12);
+        const delays: number[] = [];
+        for (const difficulty of ["beginner", "expert"] as const) {
+            const profile = getBotSkillProfile(difficulty);
+            const control = new BotAimController(
+                profile,
+                new BotRandom(84),
+                v2.create(1, 0),
+            );
+            const reversed = new BotAimController(
+                profile,
+                new BotRandom(84),
+                v2.create(1, 0),
+            );
+            for (let tick = 0; tick < 100; tick++) {
+                control.update(0.05, shooter, target, up, 7, 35, false, false);
+                reversed.update(0.05, shooter, target, up, 7, 35, false, false);
+            }
+            const unchanged = control.update(
+                0.05,
+                shooter,
+                target,
+                up,
+                7,
+                35,
+                false,
+                false,
+            );
+            const changed = reversed.update(
+                0.05,
+                shooter,
+                target,
+                down,
+                7,
+                35,
+                false,
+                false,
+            );
+            expect(changed.direction).toEqual(unchanged.direction);
+            expect(changed.reactionRemaining).toBeGreaterThan(0);
+            delays.push(changed.reactionRemaining);
+        }
+        expect(delays[0]).toBeGreaterThan(delays[1]);
+    });
+
+    test("persistent velocity changes are recognized, while brief reversals expire", () => {
+        const profile = getBotSkillProfile("expert");
+        profile.reactionTime = [0.2, 0.2];
+        const aim = new BotAimController(profile, new BotRandom(85), v2.create(1, 0));
+        const shooter = v2.create(0, 0);
+        const target = v2.create(20, 0);
+        const up = v2.create(0, 12);
+        const down = v2.create(0, -12);
+        const update = (velocity: typeof up) =>
+            aim.update(0.05, shooter, target, velocity, 7, 35, false, false);
+        for (let tick = 0; tick < 100; tick++) update(up);
+
+        expect(update(down).reactionRemaining).toBeCloseTo(0.15);
+        expect(update(up).reactionRemaining).toBe(0);
+        expect(update(down).reactionRemaining).toBeCloseTo(0.15);
+        for (let tick = 0; tick < 12; tick++) update(down);
+        const settled = update(down);
+        expect(settled.reactionRemaining).toBe(0);
+        expect(settled.direction.y).toBeLessThan(0);
+    });
+
+    test("a different maneuver on the recognition boundary waits for its own delay", () => {
+        const profile = getBotSkillProfile("expert");
+        profile.reactionTime = [0.2, 0.2];
+        const control = new BotAimController(profile, new BotRandom(87), v2.create(1, 0));
+        const changed = new BotAimController(profile, new BotRandom(87), v2.create(1, 0));
+        const shooter = v2.create(0, 0);
+        const target = v2.create(20, 0);
+        const up = v2.create(0, 12);
+        const down = v2.create(0, -12);
+        const side = v2.create(-12, 0);
+        const tick = (aim: BotAimController, velocity: typeof up) =>
+            aim.update(0.05, shooter, target, velocity, 7, 35, false, false);
+        for (let i = 0; i < 100; i++) {
+            tick(control, up);
+            tick(changed, up);
+        }
+        for (let i = 0; i < 3; i++) {
+            tick(control, down);
+            tick(changed, down);
+        }
+        const acceptedDown = tick(control, down);
+        const sidewaysGlimpse = tick(changed, side);
+        expect(sidewaysGlimpse.direction).toEqual(acceptedDown.direction);
+        expect(sidewaysGlimpse.reactionRemaining).toBeCloseTo(0.15);
+
+        const returnedToDown = tick(changed, down);
+        expect(returnedToDown.reactionRemaining).toBe(0);
+
+        const early = new BotAimController(profile, new BotRandom(88), v2.create(1, 0));
+        for (let i = 0; i < 100; i++) tick(early, up);
+        expect(tick(early, down).reactionRemaining).toBeCloseTo(0.15);
+        expect(tick(early, side).reactionRemaining).toBeCloseTo(0.15);
+    });
+
+    test("a new target still receives the normal sight reaction", () => {
+        const profile = getBotSkillProfile("casual");
+        profile.reactionTime = [0.3, 0.3];
+        const aim = new BotAimController(profile, new BotRandom(86), v2.create(1, 0));
+        const shooter = v2.create(0, 0);
+        const target = v2.create(20, 0);
+        const up = v2.create(0, 12);
+        const down = v2.create(0, -12);
+        for (let tick = 0; tick < 20; tick++) {
+            aim.update(0.05, shooter, target, up, 7, 35, false, false);
+        }
+        const before = aim.update(0.05, shooter, target, up, 7, 35, false, false);
+        const switched = aim.update(0.05, shooter, target, down, 8, 35, false, false);
+        expect(switched.direction).toEqual(before.direction);
+        expect(switched.reactionRemaining).toBeCloseTo(0.25);
+        expect(switched.readyToFire).toBe(false);
+    });
 });
 
 describe("bot decisions", () => {
@@ -196,6 +318,73 @@ describe("bot decisions", () => {
         coverCandidates: [],
         outsideZone: false,
         zoneCenter: v2.create(0, 0),
+    });
+
+    test("cover choice reflects risk, health pressure, cover value, and skill", () => {
+        const threat = {
+            id: 2,
+            position: v2.create(12, 0),
+            velocity: v2.create(0, 0),
+            visible: true,
+            seenAt: 0,
+            age: 0,
+            distance: 12,
+        };
+        const countCover = (
+            difficulty: "beginner" | "expert",
+            playstyle: "aggressive" | "defensive",
+            health: number,
+            coverScore: number,
+        ) => {
+            let coverChoices = 0;
+            for (let seed = 1; seed <= 120; seed++) {
+                const { profile, personality } = createBotProfile(
+                    difficulty,
+                    new BotRandom(seed),
+                    playstyle,
+                );
+                const decisions = new BotDecisionMaker(
+                    profile,
+                    personality,
+                    new BotRandom(seed + 2000),
+                );
+                const player = {
+                    pos: v2.create(0, 0),
+                    health,
+                    curWeapIdx: GameConfig.WeaponSlot.Primary,
+                    weapons: [
+                        { type: "mp5", ammo: 20 },
+                        { type: "", ammo: 0 },
+                    ],
+                    invManager: { has: () => false },
+                };
+                const snapshot = {
+                    ...emptySnapshot(),
+                    visibleEnemies: [threat],
+                    coverCandidates: [
+                        { position: v2.create(-4, 3), score: coverScore, obstacleId: 1 },
+                    ],
+                };
+                if (
+                    decisions.update(2, player as never, snapshot, 12).state ===
+                    "taking-cover"
+                ) {
+                    coverChoices++;
+                }
+            }
+            return coverChoices;
+        };
+        const aggressive = countCover("expert", "aggressive", 50, 10);
+        const defensive = countCover("expert", "defensive", 50, 10);
+        expect(aggressive).toBeGreaterThan(0);
+        expect(defensive).toBeLessThan(120);
+        expect(defensive).toBeGreaterThan(aggressive + 25);
+        expect(defensive).toBeGreaterThan(countCover("beginner", "defensive", 50, 10));
+        expect(defensive).toBeGreaterThan(countCover("expert", "defensive", 70, 10));
+        expect(countCover("expert", "aggressive", 20, 10)).toBeGreaterThan(
+            countCover("expert", "aggressive", 70, 10),
+        );
+        expect(countCover("expert", "defensive", 50, -3)).toBe(0);
     });
 
     test("keeps a visible target through a brief closer glimpse, then switches after recognition", () => {
@@ -1168,6 +1357,158 @@ describe("bot decisions", () => {
             expect(result.state).toBe("reloading");
             expect(result.wantsToReload).toBe(true);
         }
+    });
+
+    test("tops up low partial magazines during a safe decision window", () => {
+        const countReloads = (
+            difficulty: "beginner" | "casual" | "skilled" | "expert",
+            ammo: number,
+        ) => {
+            let reloads = 0;
+            for (let seed = 1; seed <= 40; seed++) {
+                const { profile, personality } = createBotProfile(
+                    difficulty,
+                    new BotRandom(seed),
+                    "defensive",
+                );
+                const decisions = new BotDecisionMaker(
+                    profile,
+                    personality,
+                    new BotRandom(seed + 10000),
+                );
+                const player = {
+                    pos: v2.create(0, 0),
+                    health: 100,
+                    curWeapIdx: GameConfig.WeaponSlot.Primary,
+                    weapons: [
+                        { type: "mp5", ammo },
+                        { type: "", ammo: 0 },
+                    ],
+                    invManager: { has: () => false, get: () => 90 },
+                    hasPerk: () => false,
+                };
+                for (let tick = 0; tick < 100; tick++) {
+                    if (
+                        decisions.update(0.05, player as never, emptySnapshot(), 12)
+                            .wantsToReload
+                    ) {
+                        reloads++;
+                        break;
+                    }
+                }
+            }
+            return reloads;
+        };
+        for (const difficulty of ["beginner", "casual", "skilled", "expert"] as const) {
+            expect(countReloads(difficulty, 1)).toBe(40);
+            expect(countReloads(difficulty, 5)).toBe(40);
+            expect(countReloads(difficulty, 30)).toBe(0);
+        }
+        expect(countReloads("beginner", 15)).toBe(0);
+        expect(countReloads("expert", 15)).toBe(40);
+    });
+
+    test("keeps a partial magazine ready near danger or without reserve", () => {
+        const threat = {
+            id: 2,
+            position: v2.create(12, 0),
+            velocity: v2.create(0, 0),
+            visible: true,
+            seenAt: 0,
+            age: 0,
+            distance: 12,
+        };
+        for (const scenario of [
+            { reserve: 0, visibleEnemies: [], rememberedEnemies: [] },
+            { reserve: 90, visibleEnemies: [threat], rememberedEnemies: [] },
+            {
+                reserve: 90,
+                visibleEnemies: [],
+                rememberedEnemies: [{ ...threat, visible: false, age: 0.5 }],
+            },
+        ]) {
+            const { profile, personality } = createBotProfile(
+                "expert",
+                new BotRandom(91),
+                "defensive",
+            );
+            const decisions = new BotDecisionMaker(
+                profile,
+                personality,
+                new BotRandom(91),
+            );
+            const player = {
+                pos: v2.create(0, 0),
+                health: 100,
+                curWeapIdx: GameConfig.WeaponSlot.Primary,
+                weapons: [
+                    { type: "mp5", ammo: 5 },
+                    { type: "", ammo: 0 },
+                ],
+                invManager: { has: () => false, get: () => scenario.reserve },
+                hasPerk: () => false,
+            };
+            const snapshot = {
+                ...emptySnapshot(),
+                visibleEnemies: scenario.visibleEnemies,
+                rememberedEnemies: scenario.rememberedEnemies,
+            };
+            for (let tick = 0; tick < 100; tick++) {
+                expect(
+                    decisions.update(0.05, player as never, snapshot, 12).wantsToReload,
+                ).toBe(false);
+            }
+        }
+    });
+
+    test("leaves a partial reload intent after filling the clip or noticing an enemy", () => {
+        const { profile, personality } = createBotProfile(
+            "casual",
+            new BotRandom(92),
+            "defensive",
+        );
+        const decisions = new BotDecisionMaker(profile, personality, new BotRandom(92));
+        const player = {
+            pos: v2.create(0, 0),
+            health: 100,
+            curWeapIdx: GameConfig.WeaponSlot.Primary,
+            weapons: [
+                { type: "mp5", ammo: 5 },
+                { type: "", ammo: 0 },
+            ],
+            invManager: { has: () => false, get: () => 90 },
+            hasPerk: () => false,
+        };
+        let result = decisions.update(2, player as never, emptySnapshot(), 12);
+        expect(result.state).toBe("reloading");
+        expect(result.movement).toBe("hold");
+        player.weapons[0].ammo = 30;
+        for (let tick = 0; tick < 30; tick++) {
+            result = decisions.update(0.05, player as never, emptySnapshot(), 12);
+        }
+        expect(result.state).toBe("searching");
+        expect(result.wantsToReload).toBe(false);
+
+        player.weapons[0].ammo = 5;
+        result = decisions.update(2, player as never, emptySnapshot(), 12);
+        expect(result.state).toBe("reloading");
+        const snapshot = emptySnapshot();
+        snapshot.visibleEnemies = [
+            {
+                id: 2,
+                position: v2.create(12, 0),
+                velocity: v2.create(0, 0),
+                visible: true,
+                seenAt: 0,
+                age: 0,
+                distance: 12,
+            },
+        ];
+        for (let tick = 0; tick < 30; tick++) {
+            result = decisions.update(0.05, player as never, snapshot, 12);
+        }
+        expect(result.state).not.toBe("reloading");
+        expect(result.wantsToReload).toBe(false);
     });
 
     test("ignores the endless-ammo perk when a gun definition excludes it", () => {

@@ -399,18 +399,56 @@ export class BotDecisionMaker {
             player.curWeapIdx === GameConfig.WeaponSlot.Primary ||
             player.curWeapIdx === GameConfig.WeaponSlot.Secondary;
         const emptyGun = isGun && activeWeapon.ammo <= 0;
-        const activeGunDef = emptyGun ? GameObjectDefs[activeWeapon.type] : undefined;
+        const activeGunDef = isGun ? GameObjectDefs[activeWeapon.type] : undefined;
+        const maxClip =
+            activeGunDef?.type === "gun"
+                ? player.hasPerk?.("firepower")
+                    ? activeGunDef.extendedClip
+                    : activeGunDef.maxClip
+                : 0;
+        const safeReloadThreshold =
+            0.25 +
+            this.profile.tacticalJudgment * 0.32 +
+            (1 - this.personality.riskTolerance) * 0.1;
+        const safePartialCandidate =
+            isGun &&
+            activeWeapon.ammo > 0 &&
+            maxClip > 0 &&
+            activeWeapon.ammo / maxClip <= safeReloadThreshold &&
+            !perception.outsideZone &&
+            perception.visibleEnemies.length === 0 &&
+            perception.rememberedEnemies.length === 0;
         const canReload =
+            (emptyGun || safePartialCandidate) &&
             activeGunDef?.type === "gun" &&
             ((!activeGunDef.ignoreEndlessAmmo &&
                 (activeGunDef.ammoInfinite || player.hasPerk?.("endless_ammo"))) ||
                 (activeGunDef.ammo in GameConfig.bagSizes &&
                     player.invManager.get(activeGunDef.ammo as InventoryItem) > 0));
+        const safePartialReload = safePartialCandidate && canReload;
         const otherGunSlot =
             player.curWeapIdx === GameConfig.WeaponSlot.Primary
                 ? GameConfig.WeaponSlot.Secondary
                 : GameConfig.WeaponSlot.Primary;
         const otherGun = player.weapons[otherGunSlot];
+        const coverBenefit = Math.max(
+            0,
+            Math.min(1, (perception.coverCandidates[0]?.score ?? 0) / 12),
+        );
+        const coverPressure = Math.max(
+            this.state === "reloading" ? 0.8 : 0,
+            Math.min(1, Math.max(0, (90 - player.health) / 40)),
+        );
+        const coverPropensity = Math.min(
+            1,
+            this.profile.positioningSkill *
+                coverBenefit *
+                coverPressure *
+                (0.35 +
+                    (1 - this.personality.riskTolerance) * 0.9 +
+                    (player.health < 28 ? 0.7 : 0) +
+                    (this.state === "reloading" ? 0.7 : 0)),
+        );
 
         let nextState = this.state;
         let movement: MovementIntent = "hold";
@@ -466,6 +504,11 @@ export class BotDecisionMaker {
             movement = "retreat";
             destination = visible.position;
             reason = "out of ammunition; breaking contact";
+        } else if (safePartialReload) {
+            nextState = "reloading";
+            movement = "hold";
+            wantsToReload = true;
+            reason = "topping up a low magazine in a safe window";
         } else if (
             currentCoverGoal &&
             visible &&
@@ -487,8 +530,7 @@ export class BotDecisionMaker {
             this.coverReentryRemaining <= 0 &&
             !coverGoalReached &&
             !coverGoalStalled &&
-            (player.health < 62 || this.state === "reloading") &&
-            this.profile.positioningSkill > this.rng.next()
+            coverPropensity > this.rng.next()
         ) {
             const candidateIndex = Math.floor(
                 (1 - this.profile.positioningSkill) *
